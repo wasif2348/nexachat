@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e1a">
+  <title>NexaChat — Sign In</title>
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+
+  <!-- Animated Background -->
+  <canvas id="bgCanvas"></canvas>
+
+  <!-- Auth Card -->
+  <div class="auth-wrapper">
+    <div class="auth-card" id="authCard">
+
+      <!-- Brand -->
+      <div class="brand">
+        <div class="brand-logo">
+          <span>N</span><span class="logo-accent">C</span>
+        </div>
+        <h1 class="brand-name">NexaChat</h1>
+        <p class="brand-tagline">Enterprise Messaging Platform</p>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" data-tab="login">Sign In</button>
+        <button class="tab" data-tab="register">Register</button>
+        <div class="tab-indicator" id="tabIndicator"></div>
+      </div>
+
+      <!-- Login Form -->
+      <form class="auth-form" id="loginForm">
+        <div class="field">
+          <label for="loginUsername">Username</label>
+          <div class="input-wrap">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <input type="text" id="loginUsername" placeholder="Enter your username" autocomplete="username" spellcheck="false">
+          </div>
+        </div>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <div class="input-wrap">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            <input type="password" id="loginPassword" placeholder="Enter your password" autocomplete="current-password">
+            <button type="button" class="toggle-pw" id="toggleLoginPw" tabindex="-1">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="form-error" id="loginError"></p>
+        <button type="submit" class="btn-primary" id="loginBtn">
+          <span class="btn-text">Sign In</span>
+          <span class="btn-loader hidden"></span>
+        </button>
+      </form>
+
+      <!-- Register Form -->
+      <form class="auth-form hidden" id="registerForm">
+        <div class="field">
+          <label for="regUsername">Username</label>
+          <div class="input-wrap">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <input type="text" id="regUsername" placeholder="Choose a username" autocomplete="off" spellcheck="false" maxlength="30">
+          </div>
+        </div>
+        <div class="field">
+          <label for="regPassword">Password</label>
+          <div class="input-wrap">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            <input type="password" id="regPassword" placeholder="Choose a password" autocomplete="new-password">
+          </div>
+        </div>
+        <p class="form-error" id="registerError"></p>
+        <button type="submit" class="btn-primary" id="registerBtn">
+          <span class="btn-text">Create Account</span>
+          <span class="btn-loader hidden"></span>
+        </button>
+      </form>
+
+      <!-- Demo Accounts -->
+      <div class="demo-section">
+        <button class="demo-toggle" id="demoToggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          Quick Demo Accounts
+          <svg class="chevron" id="demoChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="demo-list" id="demoList">
+          <div class="demo-item" data-user="admin" data-pass="admin123">
+            <div class="demo-avatar" style="background:#ef4444">A</div>
+            <div class="demo-info">
+              <span class="demo-username">admin</span>
+              <span class="demo-password">admin123</span>
+            </div>
+            <span class="demo-badge badge-admin">Admin</span>
+          </div>
+          <div class="demo-item" data-user="alice" data-pass="alice123">
+            <div class="demo-avatar" style="background:#8b5cf6">A</div>
+            <div class="demo-info">
+              <span class="demo-username">alice</span>
+              <span class="demo-password">alice123</span>
+            </div>
+            <span class="demo-badge badge-user">User</span>
+          </div>
+          <div class="demo-item" data-user="bob" data-pass="bob123">
+            <div class="demo-avatar" style="background:#10b981">B</div>
+            <div class="demo-info">
+              <span class="demo-username">bob</span>
+              <span class="demo-password">bob123</span>
+            </div>
+            <span class="demo-badge badge-user">User</span>
+          </div>
+          <div class="demo-item" data-user="attacker" data-pass="hack3r">
+            <div class="demo-avatar" style="background:#f59e0b">A</div>
+            <div class="demo-info">
+              <span class="demo-username">attacker</span>
+              <span class="demo-password">hack3r</span>
+            </div>
+            <span class="demo-badge badge-attack">⚠ Demo</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /.auth-card -->
+  </div><!-- /.auth-wrapper -->
+
+  <script src="/sw-beacon.js"></script>
+  <script src="/login.js"></script>
+</body>
+</html>

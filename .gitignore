@@ -1,0 +1,6 @@
+node_modules/
+nexachat.db
+*.db
+.env
+.DS_Store
+npm-debug.log*

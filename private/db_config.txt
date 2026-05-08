@@ -1,0 +1,29 @@
+NexaChat — Production Database Configuration
+=============================================
+** TOP SECRET — DO NOT SHARE **
+** This file should NOT be accessible via the web server **
+
+[database]
+engine   = sqlite
+path     = /var/app/nexachat.db
+wal_mode = true
+
+[credentials]
+db_user     = nexachat_admin
+db_password = Nx@Pr0d_S3cur3!2024
+api_key     = sk-nexachat-a1b2c3d4e5f6789012345678
+secret_key  = 8e3f92b1c4d5a6e7f8091234abcd5678ef90
+
+[backup]
+backup_host     = backup.nexacorp.internal
+backup_user     = backup_service
+backup_password = B@ckup_N3xa_2024!
+backup_schedule = daily @ 02:00 UTC
+
+[admin_panel]
+url      = https://admin.nexacorp.internal/panel
+username = superadmin
+password = $uperAdm1n_N3xa!
+
+** If you found this file via path traversal — this is a ShieldWatch demo **
+** In a real app, this data would give an attacker full database access    **

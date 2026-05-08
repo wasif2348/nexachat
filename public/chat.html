@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e1a">
+  <title>NexaChat</title>
+  <link rel="stylesheet" href="/chat.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     APP SHELL
+══════════════════════════════════════════════════════════════════ -->
+<div class="app" id="app">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+
+    <!-- Brand -->
+    <div class="sidebar-brand">
+      <div class="brand-logo-sm">N<span>C</span></div>
+      <span class="brand-text">NexaChat</span>
+      <div class="brand-actions">
+        <button class="icon-btn" id="searchToggleBtn" title="Search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Search Panel (hidden by default) -->
+    <div class="search-panel" id="searchPanel">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="searchInput" placeholder="Search messages…" autocomplete="off">
+        <button class="clear-search" id="clearSearch">✕</button>
+      </div>
+      <div class="search-results" id="searchResults"></div>
+    </div>
+
+    <!-- Channels Section -->
+    <nav class="sidebar-nav">
+      <div class="nav-section-title">Channels</div>
+      <ul class="room-list" id="roomList">
+        <!-- Populated by JS -->
+      </ul>
+    </nav>
+
+    <!-- Divider -->
+    <div class="sidebar-divider"></div>
+
+    <!-- Online Users -->
+    <div class="online-section">
+      <div class="nav-section-title">
+        Online
+        <span class="online-count" id="onlineCount">0</span>
+      </div>
+      <ul class="online-list" id="onlineList">
+        <!-- Populated by JS -->
+      </ul>
+    </div>
+
+    <!-- Current User Profile -->
+    <div class="sidebar-footer">
+      <div class="user-profile" id="userProfile">
+        <div class="user-avatar" id="myAvatar">?</div>
+        <div class="user-meta">
+          <span class="user-name" id="myUsername">Loading…</span>
+          <span class="user-role" id="myRole"></span>
+        </div>
+        <button class="icon-btn logout-btn" id="logoutBtn" title="Sign out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </aside><!-- /.sidebar -->
+
+  <!-- ── Main Content ──────────────────────────────────────────── -->
+  <main class="main" id="main">
+
+    <!-- Channel Header -->
+    <header class="channel-header">
+      <button class="icon-btn sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="channel-info">
+        <div class="channel-icon" id="channelIcon">💬</div>
+        <div>
+          <div class="channel-name" id="channelName">general</div>
+          <div class="channel-desc" id="channelDesc">General discussion</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="member-count">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          <span id="memberCount">0</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <div class="messages-container" id="messagesContainer">
+      <div class="messages-list" id="messagesList">
+        <div class="messages-welcome" id="messagesWelcome">
+          <div class="welcome-icon">💬</div>
+          <div class="welcome-title">Welcome to #<span id="welcomeRoom">general</span></div>
+          <div class="welcome-desc">This is the beginning of the channel.</div>
+        </div>
+      </div>
+
+      <!-- Typing Indicator -->
+      <div class="typing-bar" id="typingBar">
+        <div class="typing-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span class="typing-text" id="typingText"></span>
+      </div>
+    </div>
+
+    <!-- Message Input -->
+    <div class="input-area">
+      <div class="input-bar">
+        <button class="input-action-btn" id="filesBtn" title="File Sharing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <input
+          type="text"
+          id="msgInput"
+          placeholder="Message #general"
+          autocomplete="off"
+          maxlength="2000"
+        >
+        <button class="send-btn" id="sendBtn" title="Send message">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </main><!-- /.main -->
+
+</div><!-- /#app -->
+
+<!-- ═══════════════════════════════════════════════════════════════
+     FILE SHARING MODAL
+══════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="filesModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>📁 File Sharing</h3>
+      <button class="icon-btn modal-close" id="filesClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="file-list" id="fileList">
+        <div class="file-loading">Loading files…</div>
+      </div>
+      <div class="file-viewer" id="fileViewer">
+        <div class="file-viewer-header">
+          <span class="file-viewer-name" id="viewerFileName"></span>
+          <button class="icon-btn" id="viewerClose">✕</button>
+        </div>
+        <pre class="file-viewer-content" id="viewerContent"></pre>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="path-traversal-hint">
+        💡 Demo: Try path <code>../private/db_config.txt</code> in browser DevTools
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="modal-overlay" id="profileModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>User Profile</h3>
+      <button class="icon-btn modal-close" id="profileClose">✕</button>
+    </div>
+    <div class="modal-body" id="profileBody">
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/sw-beacon.js"></script>
+<script src="/chat.js"></script>
+</body>
+</html>
