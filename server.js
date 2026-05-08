@@ -4,9 +4,14 @@
  * ShieldWatch RASP sensor optional via SW_ENABLED env var
  *
  * ⚠️  INTENTIONAL VULNERABILITIES FOR DEMO:
- *   1. /api/login       — SQL Injection (raw string concat, no parameterised query)
- *   2. /api/search      — Reflected XSS (query param echoed raw in JSON, innerHTML on client)
- *   3. /api/file        — Path Traversal (no path.resolve / jail check)
+ *   1. /api/login              — SQL Injection (raw string concat)
+ *   2. /api/search             — Reflected XSS (innerHTML on client)
+ *   3. /api/file               — Path Traversal (no jail check)
+ *   4. /api/profile/update     — CSRF (no token, accepts form submissions)
+ *   5. /api/user/:id           — IDOR (no ownership check, leaks password)
+ *   6. /api/session/id+fix     — Session Fixation (exposes & accepts arbitrary session IDs)
+ *   7. /api/tools/ping         — Command Injection (exec without sanitisation)
+ *   8. /api/login (repeated)   — Brute Force (no lockout)
  */
 
 const express        = require('express');
@@ -16,6 +21,7 @@ const session        = require('express-session');
 const path           = require('path');
 const fs             = require('fs');
 const cors           = require('cors');
+const { exec }       = require('child_process');
 const { initDB, getDB, getPrepare, execVulnerable } = require('./database');
 
 const app    = express();
@@ -99,6 +105,17 @@ app.post('/api/login', (req, res) => {
     const user  = execVulnerable(query);
 
     if (!user) {
+      // Notify ShieldWatch of failed login (brute force tracking)
+      if (sw && sw.trackLoginFailure) {
+        const blocked = sw.trackLoginFailure(req);
+        if (blocked) {
+          return res.status(429).json({
+            ok: false, blocked: true,
+            error: 'Too many failed login attempts. Blocked by ShieldWatch.',
+            threat: 'bruteforce',
+          });
+        }
+      }
       return res.json({ ok: false, error: 'Invalid username or password.' });
     }
 
@@ -302,6 +319,106 @@ app.get('/api/export', (req, res) => {
       }
     },
     _note: 'NEXACORP CONFIDENTIAL — UNAUTHORIZED ACCESS LOGGED'
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  VULNERABILITY #4: CSRF
+//     Profile update accepts form-encoded POST with no CSRF token.
+//     Attack: csrf-attack.html auto-submits while victim is logged in.
+//     With ShieldWatch ON: form-encoded POST to protected endpoint = BLOCKED.
+//     Demo page: /csrf-attack.html
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/profile/update', requireAuth, express.urlencoded({ extended: false }), (req, res) => {
+  const { bio, avatar_color, username } = req.body;
+  const prepare = getPrepare();
+  if (username && username.length >= 2 && username.length <= 30) {
+    prepare('UPDATE users SET bio = ?, avatar_color = ?, username = ? WHERE id = ?')
+      .run(bio || '', avatar_color || '#3b82f6', username, req.session.userId);
+    req.session.username = username;
+  } else {
+    prepare('UPDATE users SET bio = ?, avatar_color = ? WHERE id = ?')
+      .run(bio || '', avatar_color || '#3b82f6', req.session.userId);
+  }
+  const updated = prepare('SELECT id,username,role,avatar_color,bio FROM users WHERE id = ?')
+    .get(req.session.userId);
+  res.json({ ok: true, message: '✅ Profile updated successfully.', user: updated });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  VULNERABILITY #5: INSECURE DIRECT OBJECT REFERENCE (IDOR)
+//     No auth check — any user ID returns the full DB record including password.
+//     Demo: fetch('/api/user/1') → gets admin's plain-text password.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/user/:id', (req, res) => {
+  // !! INTENTIONALLY VULNERABLE — no auth, no ownership check !!
+  const prepare = getPrepare();
+  const user = prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ ok: false, error: 'User not found' });
+  // Returns everything including the password field
+  res.json({ ok: true, user });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  VULNERABILITY #6: SESSION FIXATION
+//     GET /api/session/id  → reveals the victim's session ID
+//     POST /api/session/fix → attacker pre-sets a known session ID before login
+//     Attack: attacker plants session ID → victim logs in → attacker now owns session
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/session/id', (req, res) => {
+  // !! VULNERABLE: exposes session ID over HTTP !!
+  res.json({
+    ok:        true,
+    sessionId: req.sessionID,
+    username:  req.session.username || null,
+    role:      req.session.role     || null,
+    userId:    req.session.userId   || null,
+    _warning:  'This endpoint should NOT exist in production!'
+  });
+});
+
+app.post('/api/session/fix', (req, res) => {
+  // !! VULNERABLE: accepts attacker-controlled session ID !!
+  const { sessionId } = req.body;
+  if (!sessionId) return res.json({ ok: false, error: 'sessionId required' });
+  // Store attacker's desired session ID in the session data so it can be retrieved
+  req.session.fixedId = sessionId;
+  req.session.save(() => {
+    res.json({
+      ok:          true,
+      message:     'Session fixation successful.',
+      attackerSet: sessionId,
+      activeSid:   req.sessionID,
+      _note:       'Attacker now knows victim\'s session ID. When victim logs in, attacker can hijack the session using this SID.'
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  VULNERABILITY #7: COMMAND INJECTION
+//     POST /api/tools/ping — host parameter concatenated directly into exec().
+//     Demo: host = "8.8.8.8 && id"  → runs `id` on the server
+//           host = "8.8.8.8; ls /"  → lists root directory
+//           host = "8.8.8.8 && cat /etc/hostname" → leaks server hostname
+//     With ShieldWatch ON: cmdInjection patterns detected → BLOCKED.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/tools/ping', requireAuth, (req, res) => {
+  const { host } = req.body;
+  if (!host) return res.json({ ok: false, error: 'host is required' });
+
+  // !! INTENTIONALLY VULNERABLE — no sanitisation of host parameter !!
+  const cmd = process.platform === 'win32'
+    ? `ping -n 1 ${host}`
+    : `ping -c 1 ${host}`;
+
+  exec(cmd, { timeout: 6000 }, (err, stdout, stderr) => {
+    res.json({
+      ok:     true,
+      host,
+      cmd,
+      output: stdout || stderr || err?.message || 'No output',
+      _warning: 'This endpoint is intentionally vulnerable to command injection!'
+    });
   });
 });
 
