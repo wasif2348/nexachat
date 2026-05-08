@@ -138,6 +138,19 @@ https://nexachat.onrender.com
 4. Without ShieldWatch: alert fires
 5. With ShieldWatch: BLOCKED
 
+### Attack 5 — DDoS Flood (login endpoint)
+1. Open Terminal and run:
+   ```bash
+   cd ~/Desktop/NexaChat
+   node ddos-flood.js
+   ```
+2. Sends 50 parallel requests to `/api/login`
+3. **Without ShieldWatch**: all 50 go through (server hammered, ✓ ✓ ✓ ✓ ...)
+4. **With ShieldWatch**: first 20 pass, then 30 get BLOCKED with 429 (🛡 🛡 🛡 ...)
+5. Dashboard shows: BLOCKED | DDOS with flood count + IP info
+
+**Pro tip**: Run it twice with ShieldWatch ON — second run is blocked from the very first request!
+
 ---
 
 ## What the Dashboard Shows

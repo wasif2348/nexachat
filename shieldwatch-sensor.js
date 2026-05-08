@@ -36,6 +36,36 @@ function parseAddr(addr) {
 
 const COLLECTOR = parseAddr(RAW_ADDR);
 
+// ─── DDoS / Rate-Limit Detection ─────────────────────────────────────────────
+const requestTracker = new Map();   // ip → [timestamp, ...]
+const DDOS_WINDOW_MS = 10_000;      // 10-second sliding window
+const DDOS_THRESHOLD = 20;          // > 20 API requests in 10s = flood
+
+function checkDDoS(ip) {
+  const now  = Date.now();
+  const prev = (requestTracker.get(ip) || []).filter(t => now - t < DDOS_WINDOW_MS);
+  prev.push(now);
+  requestTracker.set(ip, prev);
+  if (prev.length > DDOS_THRESHOLD) {
+    return {
+      type:    'ddos',
+      matched: `>${DDOS_THRESHOLD} req/10s`,
+      raw:     `${prev.length} requests in 10s from ${ip}`,
+    };
+  }
+  return null;
+}
+
+// Purge stale entries every 30 seconds to avoid memory growth
+setInterval(() => {
+  const cutoff = Date.now() - DDOS_WINDOW_MS;
+  for (const [ip, times] of requestTracker) {
+    const fresh = times.filter(t => t > cutoff);
+    if (fresh.length === 0) requestTracker.delete(ip);
+    else requestTracker.set(ip, fresh);
+  }
+}, 30_000);
+
 // ─── Honeypot paths ──────────────────────────────────────────────────────────
 const HONEYPOT_PATHS = new Set([
   '/api/admin/users', '/api/admin/config', '/api/export',
@@ -162,6 +192,27 @@ function buildEvent(req, threat, verdict) {
 // ─── HTTP Middleware ───────────────────────────────────────────────────────────
 function httpMiddleware(req, res, next) {
   const rawPath = (req.path || req.url || '/').split('?')[0];
+
+  // DDoS rate-limit check (API endpoints only — skip static files)
+  if (rawPath.startsWith('/api/') || rawPath.startsWith('/socket')) {
+    const ip    = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1')
+                  .split(',')[0].trim();
+    const flood = checkDDoS(ip);
+    if (flood) {
+      const verdict = LOG_ONLY ? 'LOGGED' : 'BLOCKED';
+      const event   = buildEvent(req, flood, verdict);
+      console.log(`[ShieldWatch] 🌊 DDOS | ${ip} | ${flood.raw} | ${verdict}`);
+      report('/api/event', event);
+      if (!LOG_ONLY) {
+        return res.status(429).json({
+          ok: false, blocked: true,
+          error:  'Too many requests. DDoS flood detected by ShieldWatch.',
+          threat: 'ddos',
+          ref:    event.id,
+        });
+      }
+    }
+  }
 
   // Honeypot check
   if (HONEYPOT_PATHS.has(rawPath)) {
