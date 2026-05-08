@@ -36,6 +36,42 @@ function parseAddr(addr) {
 
 const COLLECTOR = parseAddr(RAW_ADDR);
 
+// ─── IDOR Detection ──────────────────────────────────────────────────────────
+function checkIDOR(req) {
+  const rawPath = (req.path || req.url || '/').split('?')[0];
+  // /api/user/:id — accessing another user's full record
+  const match = rawPath.match(/^\/api\/user\/(\d+)$/);
+  if (!match) return null;
+  const requestedId  = parseInt(match[1], 10);
+  const sessionUserId = req.session?.userId;
+  // Accessing ANY user record without owning it = IDOR
+  if (!sessionUserId || requestedId !== sessionUserId) {
+    return {
+      type:    'idor',
+      matched: 'unauthorized user record access (no ownership check)',
+      raw:     `GET /api/user/${requestedId} — session belongs to user:${sessionUserId || 'anonymous'}`,
+    };
+  }
+  return null;
+}
+
+// ─── Session Fixation Detection ───────────────────────────────────────────────
+const SESSION_FIXATION_PATHS = new Map([
+  ['/api/session/id',  'session ID exposure endpoint accessed'],
+  ['/api/session/fix', 'session fixation attack — forced session ID injection'],
+]);
+
+function checkSessionFixation(req) {
+  const rawPath = (req.path || req.url || '/').split('?')[0];
+  const desc = SESSION_FIXATION_PATHS.get(rawPath);
+  if (!desc) return null;
+  return {
+    type:    'sessionFixation',
+    matched: desc,
+    raw:     `${req.method} ${rawPath} from ${req.session?.username || 'anonymous'}`,
+  };
+}
+
 // ─── CSRF Detection ──────────────────────────────────────────────────────────
 // State-changing endpoints that must only be called via JSON (not form POST)
 const CSRF_PROTECTED = new Set(['/api/profile/update', '/api/settings', '/api/user/delete']);
@@ -244,6 +280,40 @@ function buildEvent(req, threat, verdict) {
 // ─── HTTP Middleware ───────────────────────────────────────────────────────────
 function httpMiddleware(req, res, next) {
   const rawPath = (req.path || req.url || '/').split('?')[0];
+
+  // IDOR check
+  const idorThreat = checkIDOR(req);
+  if (idorThreat) {
+    const verdict = LOG_ONLY ? 'LOGGED' : 'BLOCKED';
+    const event   = buildEvent(req, idorThreat, verdict);
+    console.log(`[ShieldWatch] 🔓 IDOR | ${rawPath} | ${verdict}`);
+    report('/api/event', event);
+    if (!LOG_ONLY) {
+      return res.status(403).json({
+        ok: false, blocked: true,
+        error:  'Access denied. IDOR attack blocked by ShieldWatch.',
+        threat: 'idor',
+        ref:    event.id,
+      });
+    }
+  }
+
+  // Session Fixation check
+  const sfThreat = checkSessionFixation(req);
+  if (sfThreat) {
+    const verdict = LOG_ONLY ? 'LOGGED' : 'BLOCKED';
+    const event   = buildEvent(req, sfThreat, verdict);
+    console.log(`[ShieldWatch] 🔑 SESSION FIXATION | ${rawPath} | ${verdict}`);
+    report('/api/event', event);
+    if (!LOG_ONLY) {
+      return res.status(403).json({
+        ok: false, blocked: true,
+        error:  'Session fixation attack blocked by ShieldWatch.',
+        threat: 'sessionFixation',
+        ref:    event.id,
+      });
+    }
+  }
 
   // CSRF check (form-encoded POST to protected endpoints)
   const csrfThreat = checkCSRF(req);
