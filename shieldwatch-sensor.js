@@ -36,6 +36,39 @@ function parseAddr(addr) {
 
 const COLLECTOR = parseAddr(RAW_ADDR);
 
+// ─── IP Blocklist (synced from ShieldWatch collector every 30s) ──────────────
+const blockedIPs = new Set();
+
+function fetchBlocklist() {
+  const module_ = COLLECTOR.useHttps ? https : http;
+  const options  = {
+    hostname: COLLECTOR.host,
+    port:     COLLECTOR.port,
+    path:     '/api/blocked',
+    method:   'GET',
+    timeout:  4000,
+  };
+  const req = module_.request(options, res => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      try {
+        const list = JSON.parse(data);
+        blockedIPs.clear();
+        list.forEach(ip => blockedIPs.add(ip));
+        if (list.length > 0) console.log(`[ShieldWatch] 🚫 Blocklist synced: ${list.length} IPs`);
+      } catch {}
+    });
+  });
+  req.on('error',   () => {});
+  req.on('timeout', () => req.destroy());
+  req.end();
+}
+
+// Sync blocklist immediately + every 30 seconds
+fetchBlocklist();
+setInterval(fetchBlocklist, 30_000);
+
 // ─── IDOR Detection ──────────────────────────────────────────────────────────
 function checkIDOR(req) {
   const rawPath = (req.path || req.url || '/').split('?')[0];
@@ -280,6 +313,18 @@ function buildEvent(req, threat, verdict) {
 // ─── HTTP Middleware ───────────────────────────────────────────────────────────
 function httpMiddleware(req, res, next) {
   const rawPath = (req.path || req.url || '/').split('?')[0];
+
+  // ── IP Blocklist check (highest priority) ────────────────────────────────────
+  const reqIP = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1')
+                .split(',')[0].trim().replace(/^::ffff:/, '');
+  if (blockedIPs.has(reqIP)) {
+    console.log(`[ShieldWatch] 🚫 BLOCKED IP: ${reqIP} tried ${rawPath}`);
+    return res.status(403).json({
+      ok: false, blocked: true,
+      error:  `Your IP (${reqIP}) has been permanently blocked by ShieldWatch.`,
+      threat: 'blocked_ip',
+    });
+  }
 
   // IDOR check
   const idorThreat = checkIDOR(req);
