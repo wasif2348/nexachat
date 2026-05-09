@@ -86,6 +86,32 @@
       fp.canvasHash = c2.toDataURL().slice(-32); // last 32 chars as fingerprint
     } catch (e) {}
 
+    // ── Stable device ID — hardware signals, not rendering ───────────────────
+    // Combines platform, CPU cores, RAM, screen, GPU into one compact hash.
+    // Stays constant across browser switches, VPN rotations, cookie clears.
+    // On a Mac: MacIntel/MacARM + core count + RAM + Retina res + GPU model.
+    (function buildDeviceId() {
+      var hwParts = [
+        fp.platform   || '',   // "MacIntel" / "MacARM" / "Win32" / "Linux x86_64"
+        fp.cores      || '',   // CPU logical cores (e.g. 10 for M3 Pro)
+        fp.memory     || '',   // Device RAM in GB (e.g. 16)
+        fp.screen     || '',   // e.g. "2560x1600"
+        fp.pixelRatio || '',   // e.g. 2 for Retina
+        fp.colorDepth || '',   // e.g. 30
+        fp.gpu        || '',   // e.g. "Apple M3 Pro"
+        fp.gpuVendor  || ''    // e.g. "Apple"
+      ];
+      var raw = hwParts.join('|');
+      // FNV-1a 32-bit hash → compact 8-char hex device fingerprint
+      var h = 0x811c9dc5;
+      for (var i = 0; i < raw.length; i++) {
+        h ^= raw.charCodeAt(i);
+        h  = Math.imul(h, 0x01000193) >>> 0;
+      }
+      fp.deviceId  = h.toString(16).padStart(8, '0');
+      fp.deviceRaw = raw; // human-readable for dashboard display
+    })();
+
     // Current page
     fp.page = window.location.pathname;
 
