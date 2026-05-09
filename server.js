@@ -258,6 +258,11 @@ app.get('/api/file', requireAuth, (req, res) => {
 // sw-beacon.js POSTs here → sensor forwards to collector
 // ───────────────────────────────────────────────���───────────────────────────���─
 app.post('/api/sw/fingerprint', (req, res) => {
+  // Store canvas fingerprint hash in session so sensor can check it on every request
+  const fpId = req.body?.canvas || req.body?.fingerprint?.canvas;
+  if (fpId && req.session) {
+    req.session.fpId = fpId;
+  }
   if (sw && sw.submitFingerprint) sw.submitFingerprint(req.body, req);
   res.json({ ok: true });
 });
