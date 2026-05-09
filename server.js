@@ -270,7 +270,13 @@ app.get('/api/file', requireAuth, (req, res) => {
 // ───────────────────────────────────────────────���───────────────────────────���─
 app.post('/api/sw/fingerprint', (req, res) => {
   // Store canvas fingerprint hash in session so sensor can check it on every request
-  const fpId = req.body?.canvasHash || req.body?.canvas || req.body?.fingerprint?.canvas;
+  // deviceId = hardware-level Mac fingerprint (stable across browsers/VPN)
+  // canvasHash / canvas = rendering fallbacks for older beacon versions
+  const fpId = req.body?.deviceId
+            || req.body?.canvasHash
+            || req.body?.canvas
+            || req.body?.fingerprint?.deviceId
+            || req.body?.fingerprint?.canvas;
   if (fpId && req.session) {
     req.session.fpId = fpId;
   }
