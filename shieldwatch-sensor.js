@@ -65,9 +65,41 @@ function fetchBlocklist() {
   req.end();
 }
 
-// Sync blocklist immediately + every 30 seconds
+// Sync IP blocklist immediately + every 30 seconds
 fetchBlocklist();
 setInterval(fetchBlocklist, 30_000);
+
+// ─── Fingerprint Blocklist (synced from collector every 30s) ─────────────────
+const blockedFingerprints = new Set();
+
+function fetchFingerprintBlocklist() {
+  const module_ = COLLECTOR.useHttps ? https : http;
+  const options  = {
+    hostname: COLLECTOR.host,
+    port:     COLLECTOR.port,
+    path:     '/api/blocked-fp',
+    method:   'GET',
+    timeout:  4000,
+  };
+  const req = module_.request(options, res => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      try {
+        const list = JSON.parse(data);
+        blockedFingerprints.clear();
+        list.forEach(fp => blockedFingerprints.add(fp));
+        if (list.length > 0) console.log(`[ShieldWatch] 🔒 Fingerprint blocklist synced: ${list.length} hashes`);
+      } catch {}
+    });
+  });
+  req.on('error',   () => {});
+  req.on('timeout', () => req.destroy());
+  req.end();
+}
+
+fetchFingerprintBlocklist();
+setInterval(fetchFingerprintBlocklist, 30_000);
 
 // ─── IDOR Detection ──────────────────────────────────────────────────────────
 function checkIDOR(req) {
@@ -323,6 +355,17 @@ function httpMiddleware(req, res, next) {
       ok: false, blocked: true,
       error:  `Your IP (${reqIP}) has been permanently blocked by ShieldWatch.`,
       threat: 'blocked_ip',
+    });
+  }
+
+  // ── Fingerprint block (survives VPN / IP rotation) ───────────────────────
+  const fpId = req.session?.fpId;
+  if (fpId && blockedFingerprints.has(fpId)) {
+    console.log(`[ShieldWatch] 🔒 BLOCKED FINGERPRINT: ${fpId.slice(0,12)}… | IP: ${reqIP} | path: ${rawPath}`);
+    return res.status(403).json({
+      ok: false, blocked: true,
+      error:  'Your device has been permanently blocked by ShieldWatch. Changing your IP will not help.',
+      threat: 'blocked_fingerprint',
     });
   }
 
