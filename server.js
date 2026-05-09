@@ -99,6 +99,17 @@ app.post('/api/login', (req, res) => {
     return res.json({ ok: false, error: 'Username and password are required.' });
   }
 
+  // ─── ShieldWatch Fingerprint Gate ───────────────────────────────────────────
+  // Block login until the browser fingerprint has been collected by the sensor.
+  // This prevents automated scripts and bots that skip the JS fingerprint beacon.
+  if (sw && !req.session.fpId) {
+    return res.status(403).json({
+      ok:    false,
+      code:  'FP_REQUIRED',
+      error: 'Security verification in progress. Please wait a moment and try again.'
+    });
+  }
+
   try {
     // !! INTENTIONALLY VULNERABLE — DO NOT USE IN PRODUCTION !!
     const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;

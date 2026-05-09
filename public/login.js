@@ -235,3 +235,48 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
 document.getElementById('loginUsername').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('loginPassword').focus();
 });
+
+// ─── ShieldWatch Fingerprint Gate ─────────────────────────────────────────────
+// Keeps the Sign In button disabled until sw-beacon.js has sent the browser
+// fingerprint to the sensor. This prevents bots/scripts that skip JS from
+// ever reaching the login endpoint without a fingerprint on the session.
+(function () {
+  const loginBtn  = document.getElementById('loginBtn');
+  const scanBar   = document.getElementById('swScanBar');
+  const scanText  = document.getElementById('swScanText');
+
+  // Expose ready flag so the submit handler can guard Enter-key submits too
+  window._swFpReady = false;
+
+  function unlock() {
+    if (window._swFpReady) return; // already unlocked
+    window._swFpReady = true;
+
+    loginBtn.disabled = false;
+    loginBtn.classList.remove('sw-locked');
+
+    if (scanBar) {
+      scanBar.classList.add('sw-scan-done');
+      if (scanText) scanText.textContent = '✓ Device verified — you may sign in';
+      // Fade out the bar after 2.2 s so it doesn't clutter the UI
+      setTimeout(() => { scanBar.style.opacity = '0'; }, 2200);
+      setTimeout(() => { scanBar.style.display  = 'none'; }, 2700);
+    }
+  }
+
+  // Primary trigger: beacon fires this when fingerprint POST succeeds
+  window.addEventListener('swFingerprintReady', unlock);
+
+  // Safety fallback: if the beacon never fires (e.g. network blocked),
+  // unlock after 5 s so legitimate users aren't permanently locked out
+  setTimeout(unlock, 5000);
+})();
+
+// Guard login submit against Enter-key bypass before fingerprint is ready
+document.getElementById('loginForm').addEventListener('submit', function (e) {
+  if (!window._swFpReady) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    showError('loginError', 'Security scan still in progress — please wait a moment.');
+  }
+}, true); // capture phase — runs before the regular submit listener
