@@ -89,21 +89,26 @@
     // Current page
     fp.page = window.location.pathname;
 
-    // Send to sensor (fire-and-forget)
+    // Send to sensor — dispatch swFingerprintReady when done (or on error)
+    // so the login gate is unlocked regardless of network outcome.
+    function notifyReady() {
+      window.dispatchEvent(new CustomEvent('swFingerprintReady'));
+    }
     try {
       fetch('/api/sw/fingerprint', {
         method:    'POST',
         headers:   { 'Content-Type': 'application/json' },
         body:      JSON.stringify(fp),
         keepalive: true
-      }).catch(function () {});
-    } catch (e) {}
+      }).then(notifyReady).catch(notifyReady);
+    } catch (e) { notifyReady(); }
   }
 
+  // 800ms delay — fast enough to complete before the user can type credentials
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { setTimeout(run, 1500); });
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(run, 800); });
   } else {
-    setTimeout(run, 1500);
+    setTimeout(run, 800);
   }
 
 })();

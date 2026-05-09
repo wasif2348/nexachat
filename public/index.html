@@ -52,7 +52,14 @@
           </div>
         </div>
         <p class="form-error" id="loginError"></p>
-        <button type="submit" class="btn-primary" id="loginBtn">
+
+        <!-- ShieldWatch device-verification status bar -->
+        <div class="sw-scan-bar" id="swScanBar">
+          <span class="sw-scan-pulse" id="swScanPulse"></span>
+          <span class="sw-scan-text" id="swScanText">ShieldWatch scanning device…</span>
+        </div>
+
+        <button type="submit" class="btn-primary sw-locked" id="loginBtn">
           <span class="btn-text">Sign In</span>
           <span class="btn-loader hidden"></span>
         </button>
