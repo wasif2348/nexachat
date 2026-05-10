@@ -22,6 +22,7 @@ const path           = require('path');
 const fs             = require('fs');
 const cors           = require('cors');
 const { exec }       = require('child_process');
+const crypto         = require('crypto');
 const { initDB, getDB, getPrepare, execVulnerable } = require('./database');
 
 const app    = express();
@@ -60,8 +61,8 @@ if (process.env.SW_ENABLED === 'true') {
   console.log('[ShieldWatch] ⛔ Sensor DISABLED — app is UNPROTECTED (set SW_ENABLED=true to enable)');
 }
 
-// ─── Static Files (everything except index.html — that's served dynamically) ──
-app.use(express.static(path.join(__dirname, 'public')));
+// ─── Static Files (index.html excluded — served dynamically to inject nonce) ──
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // ─── Auth Guard ───────────────────────────────────────────────────────────────
 function requireAuth(req, res, next) {
