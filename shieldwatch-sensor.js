@@ -232,7 +232,7 @@ const PATTERNS = {
   sqli: [
     /'\s*(--|#|\/\*)/i,
     /'\s*(OR|AND)\s+['"\d]/i,
-    /\bunion\b.+\bselect\b/i,
+    /\bunion\b[\s\S]+\bselect\b/i,   // [\s\S]+ catches multi-line and comment-stripped variants
     /\bselect\b.+\bfrom\b/i,
     /\bdrop\s+table\b/i,
     /\binsert\s+into\b/i,
@@ -240,17 +240,21 @@ const PATTERNS = {
     /;\s*(DROP|ALTER|CREATE|INSERT|UPDATE|DELETE)\b/i,
     /\bsleep\s*\(/i,
     /\bwaitfor\s+delay\b/i,
+    /0x[0-9a-f]{4,}/i,               // hex-encoded payloads
   ],
   xss: [
     /<script[\s>]/i,
     /javascript\s*:/i,
-    /on\w+\s*=\s*['"`]/i,
+    /on\w+\s*=\s*['"`]?/i,           // catches onerror= without quotes
     /<img[^>]+onerror/i,
     /<iframe[\s>]/i,
     /\balert\s*\(/i,
     /document\.cookie/i,
     /eval\s*\(/i,
-    /<svg[^>]+on\w+/i,
+    /<svg[\s\S]{0,50}on\w+/i,
+    /vbscript\s*:/i,
+    /data\s*:\s*text\/html/i,
+    /&#x?[0-9a-f]+;[\s\S]{0,30}(?:script|alert|onerror)/i,  // HTML entity XSS
   ],
   pathTraversal: [
     /\.\.\//,
@@ -261,24 +265,67 @@ const PATTERNS = {
     /%252e%252e/i,
     /\/etc\/passwd/i,
     /\/proc\/self/i,
+    /%00/,                            // null byte injection
+    /%c0%ae|%c0%2e/i,               // unicode overlong dots
   ],
   cmdInjection: [
     /[;&|`$]\s*(ls|cat|pwd|id|whoami|uname|curl|wget|bash|sh|python|perl)\b/i,
     /`[^`]+`/,
     /\$\([^)]+\)/,
+    /\|\s*(?:nc|netcat|ncat)\b/i,
+    /\$\{IFS\}/,
+    /&&\s*(?:cat|ls|id|whoami|curl|wget|bash|sh)\b/i,
+  ],
+  ssrf: [
+    /169\.254\.169\.254/,            // AWS metadata IP
+    /127\.0+\.0+\.\d+/,             // loopback
+    /(?:^|[^a-z0-9\-])localhost(?:[:/]|$)/i,
+    /(?:^|[^\d])10\.\d{1,3}\.\d{1,3}\.\d{1,3}/,    // 10.x.x.x
+    /172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}/,  // 172.16-31.x.x
+    /192\.168\.\d{1,3}\.\d{1,3}/,   // 192.168.x.x
+    /gopher:\/\//i,
+    /dict:\/\//i,
+    /file:\/\//i,
+  ],
+  crlf: [
+    /%0d%0a/i,                       // encoded CRLF
+    /\r\n(?:set-cookie|location|content-type):/i,
+    /%0a(?:set-cookie|location|content-type):/i,
+    /%e5%98%8a|%e5%98%8d|%u000d|%u000a/i,  // unicode CRLF variants
   ],
 };
+
+// ─── Normalise: strip SQL inline comments (kills UN/**/ION evasion) ───────────
+function stripSqlComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '');
+}
 
 // ─── Detect threat ────────────────────────────────────────────────────────────
 function detectThreats(value) {
   if (value == null || typeof value !== 'string') return null;
-  let decoded = value;
-  try { decoded = decodeURIComponent(value); } catch {}
+
+  // Build scan variants: original, URL-decoded, double-decoded, comment-stripped
+  const variants = [value];
+  try {
+    const d1 = decodeURIComponent(value.replace(/\+/g, ' '));
+    if (d1 !== value) variants.push(d1);
+    const d2 = decodeURIComponent(d1.replace(/\+/g, ' '));
+    if (d2 !== d1) variants.push(d2);
+  } catch {}
+  // Add comment-stripped version of each variant
+  const extra = [];
+  for (const v of variants) {
+    const stripped = stripSqlComments(v);
+    if (stripped !== v) extra.push(stripped);
+  }
+  variants.push(...extra);
 
   for (const [type, patterns] of Object.entries(PATTERNS)) {
     for (const re of patterns) {
-      if (re.test(value) || re.test(decoded)) {
-        return { type, matched: re.toString(), raw: value.slice(0, 200) };
+      for (const v of variants) {
+        if (re.test(v)) {
+          return { type, matched: re.toString(), raw: value.slice(0, 200) };
+        }
       }
     }
   }
@@ -470,10 +517,13 @@ function httpMiddleware(req, res, next) {
 }
 
 // ─── Socket.io Message Hook ───────────────────────────────────────────────────
+// Returns the threat object if the message should be BLOCKED, or null if clean.
+// server.js checks the return value and skips io.emit() if non-null.
 function inspectMessage(msg, socket) {
   const threat = detectThreats(msg.text);
-  if (!threat) return;
+  if (!threat) return null;
 
+  const verdict = LOG_ONLY ? 'LOGGED' : 'BLOCKED';
   const event = {
     id:        crypto.randomUUID(),
     app:       APP_ID,
@@ -483,12 +533,15 @@ function inspectMessage(msg, socket) {
     path:      '/socket/chat_message',
     ua:        socket.handshake?.headers?.['user-agent'] || '',
     threat,
-    verdict:   LOG_ONLY ? 'LOGGED' : 'BLOCKED',
+    verdict,
     session:   msg.username || 'unknown',
   };
 
-  console.log(`[ShieldWatch] 🚨 WS ${threat.type.toUpperCase()} from ${msg.username}`);
+  console.log(`[ShieldWatch] 🚨 WS ${threat.type.toUpperCase()} from ${msg.username} | ${verdict}`);
   report('/api/event', event);
+
+  // Return the threat so the caller can decide whether to block the broadcast
+  return LOG_ONLY ? null : threat;
 }
 
 // ─── Fingerprint Forwarding ───────────────────────────────────────────────────

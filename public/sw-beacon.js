@@ -115,6 +115,14 @@
     // Current page
     fp.page = window.location.pathname;
 
+    // ── One-time nonce — proves this POST came from a real page load ──────────
+    // The server embeds a per-session nonce in index.html as a <meta> tag.
+    // We read it here and include it in the fingerprint POST.
+    // A curl attacker who never loaded the page won't have this nonce,
+    // so the server will reject their fingerprint submission.
+    var nonceMeta = document.querySelector('meta[name="sw-nonce"]');
+    fp.nonce = nonceMeta ? nonceMeta.getAttribute('content') : '';
+
     // Send to sensor — dispatch swFingerprintReady when done (or on error)
     // so the login gate is unlocked regardless of network outcome.
     function notifyReady() {

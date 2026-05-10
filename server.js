@@ -60,7 +60,7 @@ if (process.env.SW_ENABLED === 'true') {
   console.log('[ShieldWatch] ⛔ Sensor DISABLED — app is UNPROTECTED (set SW_ENABLED=true to enable)');
 }
 
-// ─── Static Files ─────────────────────────────────────────────────────────────
+// ─── Static Files (everything except index.html — that's served dynamically) ──
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Auth Guard ───────────────────────────────────────────────────────────────
@@ -72,9 +72,21 @@ function requireAuth(req, res, next) {
 }
 
 // ─── Pages ────────────────────────────────────────────────────────────────────
+// index.html is served dynamically so we can embed a one-time fingerprint nonce.
+// The nonce is stored in the session and must be echoed back by sw-beacon.js.
+// A raw curl attacker who never loads this page never gets a valid nonce.
 app.get('/', (req, res) => {
   if (req.session.userId) return res.redirect('/chat');
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+
+  // Generate a fresh nonce for every login page load
+  const fpNonce = crypto.randomBytes(16).toString('hex');
+  req.session.fpNonce   = fpNonce;
+  req.session.fpNonceAt = Date.now();
+
+  // Inject the nonce into index.html via a <meta> tag
+  const html     = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+  const injected = html.replace('</head>', `  <meta name="sw-nonce" content="${fpNonce}">\n</head>`);
+  res.send(injected);
 });
 
 app.get('/chat', (req, res) => {
@@ -205,11 +217,24 @@ app.get('/api/rooms', requireAuth, (req, res) => {
 });
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
+// Fix: Only return messages for rooms the user has joined (via Socket.IO join_room).
+// Admins can read all rooms. Regular users need to have explicitly joined first.
 app.get('/api/messages/:roomId', requireAuth, (req, res) => {
+  const rid        = parseInt(req.params.roomId, 10);
+  const role       = req.session.role;
+  const joined     = req.session.joinedRooms || [];
+
+  if (role !== 'admin' && !joined.includes(rid)) {
+    return res.status(403).json({
+      ok:    false,
+      error: 'You have not joined this room. Open the room in the chat UI first.',
+    });
+  }
+
   const prepare = getPrepare();
   const msgs    = prepare(
     'SELECT * FROM messages WHERE room_id = ? ORDER BY created_at ASC LIMIT 100'
-  ).all(req.params.roomId);
+  ).all(rid);
   res.json(msgs);
 });
 
@@ -269,9 +294,26 @@ app.get('/api/file', requireAuth, (req, res) => {
 // sw-beacon.js POSTs here → sensor forwards to collector
 // ───────────────────────────────────────────────���───────────────────────────���─
 app.post('/api/sw/fingerprint', (req, res) => {
-  // Store canvas fingerprint hash in session so sensor can check it on every request
-  // deviceId = hardware-level Mac fingerprint (stable across browsers/VPN)
-  // canvasHash / canvas = rendering fallbacks for older beacon versions
+  // ── Nonce validation — kills the curl-bypass attack ─────────────────────────
+  // The nonce is embedded in the login page HTML at serve time.
+  // Only a real browser that loaded index.html has a valid nonce.
+  // A curl attacker hitting this endpoint directly never loaded the page,
+  // so they can't have the correct nonce → fingerprint rejected.
+  const submittedNonce = req.body?.nonce;
+  const sessionNonce   = req.session?.fpNonce;
+  const nonceAge       = Date.now() - (req.session?.fpNonceAt || 0);
+  const NONCE_TTL_MS   = 10 * 60 * 1000; // 10 minutes
+
+  if (!submittedNonce || submittedNonce !== sessionNonce || nonceAge > NONCE_TTL_MS) {
+    // Reject invalid / missing / expired nonce — do NOT set fpId
+    return res.status(403).json({ ok: false, error: 'Invalid security token.' });
+  }
+
+  // Consume nonce (one-time use)
+  req.session.fpNonce   = null;
+  req.session.fpNonceAt = null;
+
+  // Store fingerprint in session — used by the login gate check
   const fpId = req.body?.deviceId
             || req.body?.canvasHash
             || req.body?.canvas
@@ -497,6 +539,15 @@ io.on('connection', (socket) => {
     socket.join(`room:${rid}`);
     userObj.roomId = rid;
     onlineUsers.set(socket.id, userObj);
+
+    // Track membership in session so REST /api/messages/:roomId can verify it
+    const sess = socket.request.session;
+    sess.joinedRooms = sess.joinedRooms || [];
+    if (!sess.joinedRooms.includes(rid)) {
+      sess.joinedRooms.push(rid);
+      sess.save(() => {});   // persist immediately
+    }
+
     broadcastOnlineUsers();
   });
 
@@ -525,8 +576,19 @@ io.on('connection', (socket) => {
       created_at:   new Date().toISOString()
     };
 
-    // ShieldWatch Socket.io hook
-    if (sw && sw.inspectMessage) sw.inspectMessage(msg, socket);
+    // ShieldWatch Socket.io hook — runs BEFORE broadcast so it can block
+    if (sw && sw.inspectMessage) {
+      const blocked = sw.inspectMessage(msg, socket);
+      if (blocked) {
+        // Tell only the sender their message was blocked — don't broadcast it
+        socket.emit('message_blocked', {
+          ref:    crypto.randomUUID(),
+          threat: blocked.type,
+          error:  'Your message was blocked by ShieldWatch RASP.',
+        });
+        return;
+      }
+    }
 
     io.to(`room:${rid}`).emit('chat_message', msg);
   });
