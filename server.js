@@ -339,7 +339,7 @@ app.post('/api/sw/fingerprint', (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Fake admin user list
-app.get('/api/admin/users', (req, res) => {
+app.get('/api/admin/users', requireAuth, (req, res) => {
   if (sw && sw.honeypotHit) sw.honeypotHit('/api/admin/users', req);
   res.json({
     ok: true,
@@ -355,7 +355,7 @@ app.get('/api/admin/users', (req, res) => {
 });
 
 // Fake config dump
-app.get('/api/admin/config', (req, res) => {
+app.get('/api/admin/config', requireAuth, (req, res) => {
   if (sw && sw.honeypotHit) sw.honeypotHit('/api/admin/config', req);
   res.json({
     ok: true,
@@ -374,8 +374,8 @@ app.get('/api/admin/config', (req, res) => {
   });
 });
 
-// Fake database export
-app.get('/api/export', (req, res) => {
+// Fake database export — requires login; unauthenticated access blocked
+app.get('/api/export', requireAuth, (req, res) => {
   if (sw && sw.honeypotHit) sw.honeypotHit('/api/export', req);
   res.json({
     ok: true,
@@ -420,8 +420,8 @@ app.post('/api/profile/update', requireAuth, express.urlencoded({ extended: fals
 //     No auth check — any user ID returns the full DB record including password.
 //     Demo: fetch('/api/user/1') → gets admin's plain-text password.
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/api/user/:id', (req, res) => {
-  // !! INTENTIONALLY VULNERABLE — no auth, no ownership check !!
+app.get('/api/user/:id', requireAuth, (req, res) => {
+  // !! INTENTIONALLY VULNERABLE — no ownership check (IDOR) !!
   const prepare = getPrepare();
   const user = prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ ok: false, error: 'User not found' });
@@ -435,8 +435,8 @@ app.get('/api/user/:id', (req, res) => {
 //     POST /api/session/fix → attacker pre-sets a known session ID before login
 //     Attack: attacker plants session ID → victim logs in → attacker now owns session
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/api/session/id', (req, res) => {
-  // !! VULNERABLE: exposes session ID over HTTP !!
+app.get('/api/session/id', requireAuth, (req, res) => {
+  // !! VULNERABLE: exposes session ID (IDOR — ShieldWatch detects) !!
   res.json({
     ok:        true,
     sessionId: req.sessionID,
@@ -447,8 +447,8 @@ app.get('/api/session/id', (req, res) => {
   });
 });
 
-app.post('/api/session/fix', (req, res) => {
-  // !! VULNERABLE: accepts attacker-controlled session ID !!
+app.post('/api/session/fix', requireAuth, (req, res) => {
+  // !! VULNERABLE: accepts attacker-controlled session ID (ShieldWatch detects) !!
   const { sessionId } = req.body;
   if (!sessionId) return res.json({ ok: false, error: 'sessionId required' });
   // Store attacker's desired session ID in the session data so it can be retrieved
