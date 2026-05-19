@@ -21,6 +21,7 @@ const session        = require('express-session');
 const path           = require('path');
 const fs             = require('fs');
 const cors           = require('cors');
+const rateLimit      = require('express-rate-limit');
 const { exec }       = require('child_process');
 const crypto         = require('crypto');
 const { initDB, getDB, getPrepare, execVulnerable } = require('./database');
@@ -39,10 +40,35 @@ const sessionMiddleware = session({
   secret:            SESSION_SECRET,
   resave:            false,
   saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true }
+  cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true, secure: process.env.NODE_ENV === 'production' }
 });
 
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_ORIGIN
+  ? [process.env.ALLOWED_ORIGIN]
+  : ['http://localhost:3001'];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(null, false); // silently reject unknown origins
+  },
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
+
+const loginLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many attempts — try again in a minute.' }
+});
+const registerLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many registrations — slow down.' }
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
@@ -106,7 +132,7 @@ app.get('/ping', (req, res) => {
 //     Demo payload: username = admin'--  (any password)
 //     SQL becomes:  SELECT * FROM users WHERE username = 'admin'--' AND password = '...'
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/api/login', (req, res) => {
+app.post('/api/login', loginLimiter, (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.json({ ok: false, error: 'Username and password are required.' });
@@ -164,7 +190,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // ─── Register ─────────────────────────────────────────────────────────────────
-app.post('/api/register', (req, res) => {
+app.post('/api/register', registerLimiter, (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.json({ ok: false, error: 'Username and password are required.' });
