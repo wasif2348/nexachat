@@ -203,6 +203,11 @@ app.post('/api/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── ShieldWatch Status (for dashboard badge) ─────────────────────────────────
+app.get('/api/sw/status', (req, res) => {
+  res.json({ enabled: process.env.SW_ENABLED === 'true' });
+});
+
 // ─── Current User ─────────────────────────────────────────────────────────────
 app.get('/api/me', requireAuth, (req, res) => {
   const prepare = getPrepare();
