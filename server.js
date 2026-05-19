@@ -420,13 +420,8 @@ app.post('/api/profile/update', requireAuth, express.urlencoded({ extended: fals
 //     No auth check — any user ID returns the full DB record including password.
 //     Demo: fetch('/api/user/1') → gets admin's plain-text password.
 // ─────────────────────────────────────────────────────────────────────────────
-<<<<<<< HEAD
 app.get('/api/user/:id', requireAuth, (req, res) => {
   // !! INTENTIONALLY VULNERABLE — no ownership check (IDOR) !!
-=======
-app.get('/api/user/:id', (req, res) => {
-  // !! INTENTIONALLY VULNERABLE — no auth, no ownership check !!
->>>>>>> 38e0ad0fe21b80fc9118a591a4415eeb2203a487
   const prepare = getPrepare();
   const user = prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ ok: false, error: 'User not found' });
@@ -440,13 +435,8 @@ app.get('/api/user/:id', (req, res) => {
 //     POST /api/session/fix → attacker pre-sets a known session ID before login
 //     Attack: attacker plants session ID → victim logs in → attacker now owns session
 // ─────────────────────────────────────────────────────────────────────────────
-<<<<<<< HEAD
 app.get('/api/session/id', requireAuth, (req, res) => {
   // !! VULNERABLE: exposes session ID (IDOR — ShieldWatch detects) !!
-=======
-app.get('/api/session/id', (req, res) => {
-  // !! VULNERABLE: exposes session ID over HTTP !!
->>>>>>> 38e0ad0fe21b80fc9118a591a4415eeb2203a487
   res.json({
     ok:        true,
     sessionId: req.sessionID,
@@ -457,13 +447,8 @@ app.get('/api/session/id', (req, res) => {
   });
 });
 
-<<<<<<< HEAD
 app.post('/api/session/fix', requireAuth, (req, res) => {
   // !! VULNERABLE: accepts attacker-controlled session ID (ShieldWatch detects) !!
-=======
-app.post('/api/session/fix', (req, res) => {
-  // !! VULNERABLE: accepts attacker-controlled session ID !!
->>>>>>> 38e0ad0fe21b80fc9118a591a4415eeb2203a487
   const { sessionId } = req.body;
   if (!sessionId) return res.json({ ok: false, error: 'sessionId required' });
   // Store attacker's desired session ID in the session data so it can be retrieved
