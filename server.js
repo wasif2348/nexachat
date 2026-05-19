@@ -43,17 +43,7 @@ const sessionMiddleware = session({
   cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true, secure: process.env.NODE_ENV === 'production' }
 });
 
-const allowedOrigins = process.env.ALLOWED_ORIGIN
-  ? [process.env.ALLOWED_ORIGIN]
-  : ['http://localhost:3001'];
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-    cb(null, false); // silently reject unknown origins
-  },
-  methods: ['GET', 'POST'],
-  credentials: true
-}));
+app.use(cors());
 
 const loginLimiter = rateLimit({
   windowMs: 60 * 1000,
