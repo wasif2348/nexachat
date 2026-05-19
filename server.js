@@ -27,6 +27,7 @@ const crypto         = require('crypto');
 const { initDB, getDB, getPrepare, execVulnerable } = require('./database');
 
 const app    = express();
+app.set('trust proxy', 1); // Railway terminates SSL at load balancer
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
