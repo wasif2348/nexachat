@@ -245,9 +245,6 @@ function appendMessage(msg, animate = true) {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
     </button>` : '';
 
-  const receiptHtml = isMine
-    ? '<div class="msg-receipt" id="rr-' + msgId + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Sent</div>'
-    : '';
 
   wrapper.innerHTML =
     (isMine ? '<div class="msg-avatar-gap"></div>' : avatarHtml) +
@@ -264,7 +261,6 @@ function appendMessage(msg, animate = true) {
     '<div class="msg-bubble"><div class="msg-text">' + escapeHTML(msg.text) + '</div><div class="msg-meta">' + time + '</div></div>' +
     '</div>' +
     '<div class="msg-reactions" id="rxns-' + msgId + '"></div>' +
-    receiptHtml +
     '</div>' +
     (isMine ? avatarHtml : '');
 
@@ -286,16 +282,6 @@ function appendMessage(msg, animate = true) {
 
   msgsList.appendChild(wrapper);
 
-  // Mark receipt delivered → read
-  if (isMine) {
-    setTimeout(() => {
-      const rr = document.getElementById('rr-' + msgId);
-      if (rr) {
-        rr.classList.add('read');
-        rr.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:-6px"><polyline points="20 6 9 17 4 12"/></svg> Read';
-      }
-    }, 2200);
-  }
 }
 
 // ─── Online Users ────────────────────────────────────────────────────────────
