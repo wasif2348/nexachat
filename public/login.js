@@ -3,6 +3,7 @@
 // ─── Animated canvas background ───────────────────────────────────────────────
 (function initCanvas() {
   const canvas = document.getElementById('bgCanvas');
+  if (!canvas) return; // split-screen design doesn't use canvas background
   const ctx    = canvas.getContext('2d');
   let W, H, particles;
 
@@ -94,11 +95,11 @@ tabs.forEach((tab, idx) => {
     if (tab.dataset.tab === 'login') {
       loginForm.classList.remove('hidden');
       registerForm.classList.add('hidden');
-      indicator.classList.remove('right');
+      if (indicator) indicator.classList.remove('right');
     } else {
       loginForm.classList.add('hidden');
       registerForm.classList.remove('hidden');
-      indicator.classList.add('right');
+      if (indicator) indicator.classList.add('right');
     }
     clearErrors();
   });
