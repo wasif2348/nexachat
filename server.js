@@ -647,6 +647,72 @@ function broadcastOnlineUsers() {
   io.emit('users_update', Array.from(onlineUsers.values()));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 RED TEAM DEMO — /api/raw/* endpoints bypass ShieldWatch entirely
+//    Used by /vuln-showcase to demonstrate what attacks look like WITHOUT RASP
+//    These routes are intentionally unprotected for demo/audit purposes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Raw SQLi — executes the query string directly, no RASP
+app.post('/api/raw/login', loginLimiter, (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.json({ ok: false, error: 'Required.' });
+  try {
+    const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;
+    const user  = execVulnerable(query);
+    if (!user) return res.json({ ok: false, error: 'Invalid username or password.', query });
+    res.json({ ok: true, user: { id: user.id, username: user.username, role: user.role, password: user.password }, query, warning: '⚠️ SQLi succeeded — password check bypassed!' });
+  } catch (e) {
+    res.json({ ok: false, error: e.message, query: `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'` });
+  }
+});
+
+// Raw Path Traversal — no jail check, no RASP
+app.get('/api/raw/file', requireAuth, (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) return res.json({ ok: false, error: 'No path.' });
+  const fullPath = path.join(__dirname, 'uploads', filePath);
+  try {
+    const content = fs.readFileSync(fullPath, 'utf8');
+    res.json({ ok: true, content, path: filePath, fullPath, warning: '⚠️ Path traversal succeeded — file read outside uploads dir!' });
+  } catch (e) {
+    res.json({ ok: false, error: `Cannot read: ${e.message}`, path: filePath, fullPath });
+  }
+});
+
+// Raw IDOR — returns any user record including password, no RASP
+app.get('/api/raw/user/:id', requireAuth, (req, res) => {
+  const prepare = getPrepare();
+  const user = prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ ok: false, error: 'User not found' });
+  res.json({ ok: true, user, warning: '⚠️ IDOR succeeded — got another user\'s plaintext password!' });
+});
+
+// Raw Command Injection — no RASP
+app.post('/api/raw/ping', requireAuth, (req, res) => {
+  const { host } = req.body;
+  if (!host) return res.json({ ok: false, error: 'host required' });
+  const cmd = `ping -c 1 ${host}`;
+  exec(cmd, { timeout: 6000 }, (err, stdout, stderr) => {
+    res.json({ ok: true, host, cmd, output: stdout || stderr || err?.message, warning: '⚠️ Command injection — attacker controlled shell execution!' });
+  });
+});
+
+// Raw XSS — returns q unsanitised, no RASP
+app.get('/api/raw/search', requireAuth, (req, res) => {
+  const { q, roomId } = req.query;
+  const prepare = getPrepare();
+  const results = prepare('SELECT * FROM messages WHERE room_id = ? AND text LIKE ? ORDER BY created_at DESC LIMIT 20').all(roomId || 1, `%${q || ''}%`);
+  res.json({ ok: true, results, query: q, warning: '⚠️ XSS vector — query echoed raw, client will innerHTML it' });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 VULNERABILITY SHOWCASE PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/vuln-showcase', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'vuln-showcase.html'));
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 initDB().then(() => {
   server.listen(PORT, '0.0.0.0', () => {
