@@ -100,6 +100,7 @@ async function init() {
     rooms       = await roomsRes.json();
 
     myUsername.textContent    = currentUser.username;
+    document.querySelector('.brand-text') && (document.querySelector('.brand-text').innerHTML = 'Nexa<em style="font-style:normal;color:var(--ind-l)">Chat</em>');
     myRole.textContent        = currentUser.role === 'admin' ? '⚑ Admin' : 'Member';
     myAvatar.textContent      = currentUser.username[0].toUpperCase();
     myAvatar.style.background = currentUser.avatar_color || '#3b82f6';
@@ -205,9 +206,8 @@ let lastMsgDate = null;
 function appendMessage(msg, animate = true) {
   if (!msg || !msg.username) return;
 
-  const isMine    = currentUser && msg.username === currentUser.username;
-  const msgDate   = msg.created_at ? new Date(msg.created_at).toDateString() : null;
-  const isGrouped = (lastMsgUser === msg.username);
+  const isMine  = currentUser && msg.username === currentUser.username;
+  const msgDate = msg.created_at ? new Date(msg.created_at).toDateString() : null;
 
   // ── Date divider ──
   if (msgDate && msgDate !== lastMsgDate) {
@@ -216,7 +216,6 @@ function appendMessage(msg, animate = true) {
     divider.textContent = formatDateLabel(msg.created_at);
     msgsList.appendChild(divider);
     lastMsgDate = msgDate;
-    // Always un-group after a date divider
     lastMsgUser = null;
   }
 
@@ -229,53 +228,74 @@ function appendMessage(msg, animate = true) {
 
   const time      = formatTime(msg.created_at);
   const initial   = msg.username[0].toUpperCase();
-  const color     = msg.avatar_color || '#3b82f6';
+  const color     = msg.avatar_color || '#4f59e8';
   const roleClass = msg.role === 'admin' ? ' role-admin' : '';
+  const msgId     = msg.id || ('local-' + Date.now());
 
-  if (isMine) {
-    // ── MY bubble (right) ──
-    wrapper.innerHTML = `
-      ${grouped ? '<div class="msg-avatar-gap"></div>' : ''}
-      <div class="msg-content">
-        <div class="msg-bubble">
-          <div class="msg-text">${escapeHTML(msg.text)}</div>
-          <div class="msg-meta">${time}</div>
-        </div>
-      </div>
-      ${!grouped ? `<div class="msg-avatar" style="background:${escapeHTML(color)}" data-user="${escapeHTML(msg.username)}">${escapeHTML(initial)}</div>` : '<div class="msg-avatar-gap"></div>'}
-    `;
-  } else {
-    // ── THEIR bubble (left) ──
-    wrapper.innerHTML = `
-      ${!grouped ? `<div class="msg-avatar" style="background:${escapeHTML(color)}" data-user="${escapeHTML(msg.username)}">${escapeHTML(initial)}</div>`
-                 : '<div class="msg-avatar-gap"></div>'}
-      <div class="msg-content">
-        ${!grouped ? `<div class="msg-sender${roleClass}">${escapeHTML(msg.username)}</div>` : ''}
-        <div class="msg-bubble">
-          <div class="msg-text">${escapeHTML(msg.text)}</div>
-          <div class="msg-meta">${time}</div>
-        </div>
-      </div>
-    `;
-  }
+  const avatarHtml = grouped
+    ? '<div class="msg-avatar-gap"></div>'
+    : '<div class="msg-avatar" style="background:' + escapeHTML(color) + '" data-user="' + escapeHTML(msg.username) + '">' + escapeHTML(initial) + '</div>';
 
-  // Hover actions toolbar
-  const actionsDiv = document.createElement('div');
-  actionsDiv.className = 'msg-actions';
-  actionsDiv.innerHTML = `
-    <button class="msg-action-btn" title="React">👍</button>
-    <button class="msg-action-btn" title="React">❤️</button>
-    <button class="msg-action-btn" title="React">😂</button>
-    <button class="msg-action-btn" title="Reply">↩</button>
-  `;
-  wrapper.appendChild(actionsDiv);
+  const senderHtml = (!grouped && !isMine)
+    ? '<div class="msg-sender' + roleClass + '" data-user="' + escapeHTML(msg.username) + '">' + escapeHTML(msg.username) + '</div>'
+    : '';
 
-  // Avatar click → profile
+  const mineActions = isMine ? `
+    <button class="msg-action-btn danger" title="Delete" data-action="delete">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+    </button>` : '';
+
+  const receiptHtml = isMine
+    ? '<div class="msg-receipt" id="rr-' + msgId + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Sent</div>'
+    : '';
+
+  wrapper.innerHTML =
+    (isMine ? '<div class="msg-avatar-gap"></div>' : avatarHtml) +
+    '<div class="msg-content">' +
+    senderHtml +
+    '<div style="position:relative">' +
+    '<div class="msg-actions">' +
+    '<button class="msg-action-btn" title="👍" data-action="react" data-emoji="👍">👍</button>' +
+    '<button class="msg-action-btn" title="❤️" data-action="react" data-emoji="❤️">❤️</button>' +
+    '<button class="msg-action-btn" title="🔥" data-action="react" data-emoji="🔥">🔥</button>' +
+    '<button class="msg-action-btn" title="Reply" data-action="reply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 17H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5"/><polyline points="9 11 12 14 22 9"/></svg></button>' +
+    mineActions +
+    '</div>' +
+    '<div class="msg-bubble"><div class="msg-text">' + escapeHTML(msg.text) + '</div><div class="msg-meta">' + time + '</div></div>' +
+    '</div>' +
+    '<div class="msg-reactions" id="rxns-' + msgId + '"></div>' +
+    receiptHtml +
+    '</div>' +
+    (isMine ? avatarHtml : '');
+
+  // Wire toolbar actions
+  wrapper.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      if (action === 'react') addReaction(msgId, btn.dataset.emoji, wrapper);
+      if (action === 'reply') openReplyBar(msg.username, msg.text);
+      if (action === 'delete') deleteMessageLocal(wrapper);
+    });
+  });
+
+  // Avatar / sender → profile
   wrapper.querySelectorAll('[data-user]').forEach(el => {
     el.addEventListener('click', () => showProfile(msg.username, msg.avatar_color, msg.role, msg.bio));
   });
 
   msgsList.appendChild(wrapper);
+
+  // Mark receipt delivered → read
+  if (isMine) {
+    setTimeout(() => {
+      const rr = document.getElementById('rr-' + msgId);
+      if (rr) {
+        rr.classList.add('read');
+        rr.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:-6px"><polyline points="20 6 9 17 4 12"/></svg> Read';
+      }
+    }, 2200);
+  }
 }
 
 // ─── Online Users ────────────────────────────────────────────────────────────
@@ -286,12 +306,29 @@ function renderOnlineUsers() {
   unique.forEach(u => {
     const li = document.createElement('li');
     li.className = 'online-item';
-    li.innerHTML = `
-      <div class="online-avatar" style="background:${escapeHTML(u.avatar_color || '#3b82f6')}">${u.username[0].toUpperCase()}</div>
-      <span class="online-name">${escapeHTML(u.username)}</span>
-    `;
+    li.innerHTML =
+      '<div class="online-avatar" style="background:' + escapeHTML(u.avatar_color || '#4f59e8') + '">' + u.username[0].toUpperCase() + '</div>' +
+      '<span class="online-name">' + escapeHTML(u.username) + '</span>';
     li.addEventListener('click', () => showProfile(u.username, u.avatar_color, u.role, u.bio));
     onlineListEl.appendChild(li);
+  });
+
+  // Also populate members panel (right sidebar)
+  const membersList = document.getElementById('membersList');
+  const membersCount = document.getElementById('membersPanelCount');
+  if (!membersList) return;
+  membersCount && (membersCount.textContent = unique.length);
+  membersList.innerHTML = '<div class="members-section-label">Online — ' + unique.length + '</div>';
+  unique.forEach(u => {
+    const item = document.createElement('div');
+    item.className = 'member-item';
+    item.innerHTML =
+      '<div class="member-avatar" style="background:' + escapeHTML(u.avatar_color || '#4f59e8') + '">' +
+      u.username[0].toUpperCase() +
+      '<span class="member-status-dot"></span></div>' +
+      '<span class="member-name">' + escapeHTML(u.username) + '</span>';
+    item.addEventListener('click', () => showProfile(u.username, u.avatar_color, u.role, u.bio));
+    membersList.appendChild(item);
   });
 }
 
@@ -595,6 +632,10 @@ function showProfile(username, avatarColor, role, bio) {
 }
 
 // ─── Keyboard Shortcuts ───────────────────────────────────────────────────────
+// ─── Reply Bar Close ─────────────────────────────────────────────────────────
+const replyBarCloseBtn = $('replyBarClose');
+if (replyBarCloseBtn) replyBarCloseBtn.addEventListener('click', closeReplyBar);
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     $('filesModal').classList.remove('open');
@@ -602,6 +643,7 @@ document.addEventListener('keydown', (e) => {
     searchPanel.classList.remove('open');
     $('emojiPicker').classList.remove('open');
     $('emojiBtn').classList.remove('active');
+    closeReplyBar();
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault();
@@ -633,6 +675,65 @@ function formatDateLabel(isoString) {
   if (d.toDateString() === today.toDateString())     return 'Today';
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+
+// ─── Reply Bar ───────────────────────────────────────────────────────────────
+let replyContext = null;
+
+function openReplyBar(username, text) {
+  replyContext = { username, text };
+  const bar = document.getElementById('replyBar');
+  if (!bar) return;
+  document.getElementById('replyBarWho').textContent = username;
+  document.getElementById('replyBarPreview').textContent = ' · ' + text.slice(0, 60);
+  bar.classList.add('visible');
+  msgInput.focus();
+}
+
+function closeReplyBar() {
+  replyContext = null;
+  const bar = document.getElementById('replyBar');
+  if (bar) bar.classList.remove('visible');
+}
+
+// ─── Delete Message (local UI only) ─────────────────────────────────────────
+function deleteMessageLocal(wrapper) {
+  const bubble = wrapper.querySelector('.msg-bubble');
+  if (!bubble) return;
+  bubble.innerHTML = '<em class="msg-deleted">This message was deleted</em>';
+  bubble.style.cssText += ';background:rgba(248,113,113,.04);border-color:rgba(248,113,113,.08);';
+  const actions = wrapper.querySelector('.msg-actions');
+  if (actions) actions.innerHTML = '';
+  const rxns = wrapper.querySelector('.msg-reactions');
+  if (rxns) rxns.innerHTML = '';
+}
+
+// ─── Reactions (local UI only) ───────────────────────────────────────────────
+function addReaction(msgId, emoji, wrapper) {
+  const container = wrapper.querySelector('.msg-reactions');
+  if (!container) return;
+  const existing = [...container.querySelectorAll('.rxn-chip')].find(c =>
+    c.querySelector('span:first-child') && c.querySelector('span:first-child').textContent === emoji
+  );
+  if (existing) {
+    const cnt = existing.querySelector('.rxn-count');
+    const n = parseInt(cnt.textContent) || 1;
+    if (existing.classList.contains('mine')) {
+      if (n <= 1) { existing.remove(); return; }
+      cnt.textContent = n - 1;
+      existing.classList.remove('mine');
+    } else {
+      cnt.textContent = n + 1;
+      existing.classList.add('mine');
+    }
+  } else {
+    const chip = document.createElement('div');
+    chip.className = 'rxn-chip mine';
+    chip.innerHTML = '<span>' + emoji + '</span><span class="rxn-count">1</span>';
+    chip.addEventListener('click', () => addReaction(msgId, emoji, wrapper));
+    container.appendChild(chip);
+  }
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────

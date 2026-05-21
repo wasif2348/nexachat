@@ -7,19 +7,20 @@
   <title>NexaChat</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/chat.css">
 </head>
 <body>
 
 <div class="app" id="app">
+  <!-- Members panel rendered by JS on right -->
 
   <!-- ══ SIDEBAR ══════════════════════════════════════════════════ -->
   <aside class="sidebar" id="sidebar">
 
     <div class="sidebar-brand">
       <div class="brand-logo-sm">N<span>C</span></div>
-      <span class="brand-text">NexaChat</span>
+      <span class="brand-text">Nexa<em style="font-style:normal;color:var(--ind-l)">Chat</em></span>
       <div class="brand-actions">
         <button class="icon-btn" id="searchToggleBtn" title="Search (⌘K)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -119,6 +120,18 @@
       <span class="scroll-fab-badge" id="scrollFabBadge"></span>
     </button>
 
+    <!-- Reply bar -->
+    <div class="reply-bar" id="replyBar">
+      <span class="reply-bar-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 17H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5"/><polyline points="9 11 12 14 22 9"/></svg>
+      </span>
+      <span>Replying to <span class="reply-bar-who" id="replyBarWho"></span></span>
+      <span class="reply-bar-preview" id="replyBarPreview"></span>
+      <button class="reply-bar-close" id="replyBarClose" title="Cancel reply">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
     <!-- Input -->
     <div class="input-area">
 
@@ -128,21 +141,34 @@
       </div>
 
       <div class="input-bar">
-        <button class="input-action-btn" id="filesBtn" title="File browser">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-        </button>
-        <button class="input-action-btn emoji-toggle" id="emojiBtn" title="Emoji">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-        </button>
-        <input type="text" id="msgInput" placeholder="Message #general" autocomplete="off" maxlength="2000">
-        <span class="char-count" id="charCount"></span>
-        <button class="send-btn" id="sendBtn" title="Send (Enter)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-        </button>
+        <div class="input-row">
+          <button class="input-action-btn" id="filesBtn" title="File browser">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <button class="input-action-btn emoji-toggle" id="emojiBtn" title="Emoji">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </button>
+          <input type="text" id="msgInput" placeholder="Message #general" autocomplete="off" maxlength="2000">
+          <span class="char-count" id="charCount"></span>
+          <button class="send-btn" id="sendBtn" title="Send (Enter)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Send
+          </button>
+        </div>
       </div>
     </div>
 
   </main>
+
+  <!-- ══ MEMBERS PANEL ══════════════════════════════════════════════ -->
+  <aside class="members-panel" id="membersPanel">
+    <div class="members-header">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Members · <span id="membersPanelCount">0</span>
+    </div>
+    <div class="members-body" id="membersList"></div>
+  </aside>
+
 </div>
 
 <!-- ══ FILE BROWSER MODAL ═══════════════════════════════════════ -->
