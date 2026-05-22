@@ -217,18 +217,43 @@ function create(options = {}) {
 
   console.log(`[ShieldWatch] ✅ Sensor initialized — app: "${appId}" | collector: ${collectorUrl} | mode: ${logOnly ? 'LOG_ONLY' : 'BLOCKING'}`);
 
+  // ── Startup connectivity check — pings Cerebro 3 s after boot ─────────────
+  let _cerebroReachable = false;
+  setTimeout(() => {
+    const mod_ = COLLECTOR.useHttps ? https : http;
+    const r = mod_.request(
+      { hostname: COLLECTOR.host, port: COLLECTOR.port, path: '/api/events', method: 'GET', timeout: 3000 },
+      res => {
+        _cerebroReachable = true;
+        console.log(`[ShieldWatch] 🟢 Cerebro reachable at ${collectorUrl} (HTTP ${res.statusCode})`);
+        res.resume();
+      }
+    );
+    r.on('error', err => {
+      console.error(`[ShieldWatch] 🔴 Cannot reach Cerebro at ${collectorUrl} — ${err.message}`);
+      console.error(`[ShieldWatch]    ↳ Check SW_CEREBRO_URL in ecosystem.config.js and restart with --update-env`);
+    });
+    r.on('timeout', () => { r.destroy(); console.error(`[ShieldWatch] 🔴 Cerebro ping timed out at ${collectorUrl}`); });
+    r.end();
+  }, 3000);
+
   // ── HTTP reporter — fail-open: if Cerebro is down, app keeps running ───────
   function report(endpoint, payload) {
-    const body    = JSON.stringify(payload);
-    const mod_    = COLLECTOR.useHttps ? https : http;
-    const opts    = {
+    const body = JSON.stringify(payload);
+    const mod_ = COLLECTOR.useHttps ? https : http;
+    const opts = {
       hostname: COLLECTOR.host, port: COLLECTOR.port,
       path: endpoint, method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
       timeout: 4000,
     };
     const r = mod_.request(opts, res => { res.resume(); });
-    r.on('error', () => {});
+    r.on('error', err => {
+      // Log once if Cerebro was never reachable to help diagnose misconfiguration
+      if (!_cerebroReachable) {
+        console.error(`[ShieldWatch] ⚠️  Event lost — Cerebro unreachable (${collectorUrl}): ${err.message}`);
+      }
+    });
     r.on('timeout', () => r.destroy());
     r.write(body); r.end();
   }
@@ -264,7 +289,8 @@ function create(options = {}) {
         } catch {}
       });
     });
-    r.on('error', () => {}); r.on('timeout', () => r.destroy()); r.end();
+    r.on('error', err => console.error(`[ShieldWatch] ⚠️  Blocklist sync failed (${collectorUrl}): ${err.message}`));
+    r.on('timeout', () => r.destroy()); r.end();
   }
 
   syncBlocklist('/api/blocked',    blockedIPs,          'IP blocklist');
