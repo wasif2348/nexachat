@@ -34,7 +34,7 @@ textarea,input{font-family:inherit;}
 }
 
 html,body{
-  height:100%;overflow:hidden;overflow-x:hidden;
+  height:100%;height:100dvh;overflow:hidden;overflow-x:hidden;
   background:var(--bg);color:var(--t1);
   font-family:var(--font);font-size:14px;line-height:1.5;
   -webkit-font-smoothing:antialiased;
@@ -45,6 +45,8 @@ html,body{
   display:grid;
   grid-template-columns:var(--sw) 1fr var(--mw);
   height:100vh;overflow:hidden;overflow-x:hidden;
+  /* dvh = dynamic viewport height — excludes browser chrome on mobile */
+  height:100dvh;
 }
 
 /* ══════════════════════════════ SIDEBAR ══════════════════════════════ */
@@ -803,6 +805,7 @@ html,body{
   /* ── Sidebar: slide-over panel ── */
   .sidebar{
     position:fixed;left:0;top:0;bottom:0;width:var(--sw);
+    height:100vh;height:100dvh;          /* dvh = excludes browser chrome */
     z-index:200;transform:translateX(-100%);
     transition:transform .22s var(--ease);
     box-shadow:6px 0 28px rgba(0,0,0,.55);
@@ -830,7 +833,7 @@ html,body{
   .member-count{display:none;}
   .sw-badge .sw-badge-label{display:none;}   /* show dot only, not text */
   .sw-badge{padding:4px 7px;}
-  .admin-toolbar{display:none;}              /* admin buttons go inside sidebar on mobile */
+  .admin-toolbar{display:none!important;}    /* admin buttons moved to sidebar on mobile */
 
   /* ── Wider message bubbles on phone ── */
   .msg-content{max-width:88%;}
