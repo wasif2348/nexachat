@@ -34,7 +34,7 @@ textarea,input{font-family:inherit;}
 }
 
 html,body{
-  height:100%;overflow:hidden;
+  height:100%;overflow:hidden;overflow-x:hidden;
   background:var(--bg);color:var(--t1);
   font-family:var(--font);font-size:14px;line-height:1.5;
   -webkit-font-smoothing:antialiased;
@@ -44,7 +44,7 @@ html,body{
 .app{
   display:grid;
   grid-template-columns:var(--sw) 1fr var(--mw);
-  height:100vh;overflow:hidden;
+  height:100vh;overflow:hidden;overflow-x:hidden;
 }
 
 /* ══════════════════════════════ SIDEBAR ══════════════════════════════ */
@@ -217,9 +217,9 @@ html,body{
   display:flex;flex-direction:column;gap:1px;
 }
 .messages-list{scrollbar-width:none;}
-.messages-list::-webkit-scrollbar{width:0;background:transparent;}
+.messages-list::-webkit-scrollbar{width:0;height:0;background:transparent;}
 .messages-list:hover{scrollbar-width:thin;scrollbar-color:var(--b1) transparent;}
-.messages-list:hover::-webkit-scrollbar{width:3px;}
+.messages-list:hover::-webkit-scrollbar{width:3px;height:0;}
 .messages-list::-webkit-scrollbar-track{background:transparent;}
 .messages-list::-webkit-scrollbar-thumb{background:var(--b1);border-radius:4px;}
 .messages-list:hover::-webkit-scrollbar-thumb{background:var(--b2);}
@@ -277,8 +277,8 @@ html,body{
 .msg-bubble{
   background:var(--s2);border:1px solid var(--b0);
   border-radius:14px;padding:8px 12px;
-  font-size:14px;line-height:1.6;word-break:break-word;
-  position:relative;
+  font-size:14px;line-height:1.6;word-break:break-word;overflow-wrap:break-word;
+  position:relative;max-width:100%;overflow:hidden;
   animation:msgIn .18s var(--ease);
 }
 .mine .msg-bubble{background:var(--ind-bg);border-color:var(--ind-bg2);}
