@@ -70,7 +70,7 @@ app.use(sessionMiddleware);
 let sw = null;
 if (process.env.SW_ENABLED === 'true') {
   try {
-    const ShieldWatch = require('shieldwatch-sensor');
+    const ShieldWatch = require('./shieldwatch-sensor');
     sw = ShieldWatch.create({
       collectorUrl: process.env.SW_CEREBRO_URL || process.env.SW_CEREBRO_ADDR || 'http://localhost:3002',
       appId:        process.env.SW_APP_ID      || 'nexachat',
