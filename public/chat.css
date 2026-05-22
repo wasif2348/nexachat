@@ -830,6 +830,7 @@ html,body{
   .member-count{display:none;}
   .sw-badge .sw-badge-label{display:none;}   /* show dot only, not text */
   .sw-badge{padding:4px 7px;}
+  .admin-toolbar{display:none;}              /* admin buttons go inside sidebar on mobile */
 
   /* ── Wider message bubbles on phone ── */
   .msg-content{max-width:88%;}
@@ -862,7 +863,29 @@ html,body{
 /* ── Very small screens (≤400px) ── */
 @media(max-width:400px){
   .sw-badge{display:none;}
-  .admin-toolbar{display:none;}
   .header-actions{gap:4px;}
   .channel-icon{display:none;}
 }
+
+/* ── iOS safe area (notch / home indicator) ── */
+@supports(padding:max(0px)){
+  .input-area{
+    padding-bottom:max(12px, env(safe-area-inset-bottom));
+  }
+  .toast-container{
+    bottom:max(76px, calc(env(safe-area-inset-bottom) + 76px));
+  }
+}
+
+/* ── Mobile admin shortcuts inside sidebar footer ── */
+.sidebar-admin-bar{
+  display:flex;
+  gap:4px;padding:6px 8px 0;border-top:1px solid var(--b0);flex-shrink:0;
+}
+.sidebar-admin-pill{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:5px;
+  background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.18);
+  color:#f87171;border-radius:7px;padding:7px 8px;
+  font-size:12px;font-weight:600;transition:background .15s;
+}
+.sidebar-admin-pill:hover{background:rgba(248,113,113,.12);}

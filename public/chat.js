@@ -794,18 +794,20 @@ function closeSidebarOnMobile() {
   if (window.innerWidth <= 680) closeSidebar();
 }
 
-$('sidebarToggle').addEventListener('click', () => {
+$('sidebarToggle').addEventListener('click', (e) => {
+  e.stopPropagation(); // CRITICAL: prevent bubbling to main which would re-close immediately
   if ($('sidebar').classList.contains('open')) closeSidebar();
   else openSidebar();
 });
-$('sidebarCloseBtn').addEventListener('click', closeSidebar);
+$('sidebarCloseBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeSidebar();
+});
 $('sidebarBackdrop').addEventListener('click', closeSidebar);
 
-// Close sidebar when tapping directly on main (not a child interaction)
-$('main').addEventListener('click', (e) => {
-  if (window.innerWidth <= 680 && $('sidebar').classList.contains('open')) {
-    closeSidebar();
-  }
+// Close sidebar when tapping the main content area (not the toggle)
+$('main').addEventListener('click', () => {
+  if (window.innerWidth <= 680) closeSidebar();
 });
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
