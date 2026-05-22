@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220">
+  <g fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- Chat bubble (received) top-left -->
+    <rect x="12" y="18" width="38" height="24" rx="7"/>
+    <path d="M22 42 L16 50 L28 42"/>
+
+    <!-- Chat bubble (sent) top-right -->
+    <rect x="170" y="12" width="38" height="24" rx="7"/>
+    <path d="M198 36 L204 44 L192 36"/>
+
+    <!-- Smiley face -->
+    <circle cx="180" cy="100" r="16"/>
+    <path d="M172 106 Q180 113 188 106"/>
+    <circle cx="174" cy="96" r="2.5" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="186" cy="96" r="2.5" fill="rgba(255,255,255,0.055)" stroke="none"/>
+
+    <!-- Heart -->
+    <path d="M105 88 C105 82 99 76 93 82 C87 76 81 82 81 88 C81 99 93 108 93 108 C93 108 105 99 105 88"/>
+
+    <!-- Star -->
+    <path d="M155 155 L157 162 L164 162 L159 167 L161 174 L155 169 L149 174 L151 167 L146 162 L153 162 Z"/>
+
+    <!-- Lock icon (ShieldWatch theme) -->
+    <rect x="38" y="130" width="20" height="16" rx="3"/>
+    <path d="M41 130 Q41 122 48 122 Q55 122 55 130"/>
+    <circle cx="48" cy="138" r="2.5" fill="rgba(255,255,255,0.055)" stroke="none"/>
+
+    <!-- Send arrow -->
+    <path d="M115 128 L134 120 L115 112 L120 120 Z"/>
+
+    <!-- Signal / wifi bars -->
+    <path d="M28 168 Q36 158 48 158 Q60 158 68 168"/>
+    <path d="M33 176 Q39 168 48 168 Q57 168 63 176"/>
+    <circle cx="48" cy="184" r="3" fill="rgba(255,255,255,0.055)" stroke="none"/>
+
+    <!-- Small chat bubble mid-right -->
+    <rect x="158" y="60" width="28" height="18" rx="5"/>
+    <path d="M167 78 L162 85 L172 78"/>
+
+    <!-- Thumbs up -->
+    <path d="M20 90 Q20 80 28 80 L36 80 Q36 78 34 74 Q32 68 36 66 Q42 66 42 74 L42 80 L48 80 Q52 80 52 85 L52 98 Q52 102 48 102 L28 102 Q20 102 20 98 Z"/>
+    <path d="M34 80 L34 102"/>
+
+    <!-- Sparkle / star small -->
+    <path d="M130 40 L131 36 L132 40 L136 41 L132 42 L131 46 L130 42 L126 41 Z"/>
+    <path d="M72 55 L73 51 L74 55 L78 56 L74 57 L73 61 L72 57 L68 56 Z"/>
+    <path d="M10 150 L11 146 L12 150 L16 151 L12 152 L11 156 L10 152 L6 151 Z"/>
+    <path d="M200 145 L201 141 L202 145 L206 146 L202 147 L201 151 L200 147 L196 146 Z"/>
+
+    <!-- Dots scattered -->
+    <circle cx="110" cy="22" r="3" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="145" cy="55" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="22" cy="60" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="80" cy="28" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="195" cy="175" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="60" cy="200" r="2.5" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="130" cy="195" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="10" cy="200" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="205" cy="30" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+    <circle cx="92" cy="148" r="2" fill="rgba(255,255,255,0.055)" stroke="none"/>
+  </g>
+</svg>
