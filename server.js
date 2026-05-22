@@ -65,12 +65,39 @@ app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 
 // ─── ShieldWatch RASP Sensor (optional) ───────────────────────────────────────
+// Install: npm install shieldwatch-sensor  (or: file:../shieldwatch-sensor for local)
+// Enable:  SW_ENABLED=true node server.js
 let sw = null;
 if (process.env.SW_ENABLED === 'true') {
   try {
-    sw = require('./shieldwatch-sensor');
-    app.use(sw.httpMiddleware);
-    console.log('[ShieldWatch] ✅ RASP sensor ACTIVE — Cerebro:', process.env.SW_CEREBRO_ADDR || '127.0.0.1:50051');
+    const ShieldWatch = require('shieldwatch-sensor');
+    sw = ShieldWatch.create({
+      collectorUrl: process.env.SW_CEREBRO_URL || 'http://localhost:3002',
+      appId:        process.env.SW_APP_ID      || 'nexachat',
+
+      // CSRF: profile update must come from JS fetch, not cross-site form
+      csrfProtectedPaths: ['/api/profile/update'],
+
+      // Session fixation demo routes
+      sessionFixationPaths: ['/api/session/id', '/api/session/fix'],
+
+      // IDOR: user can only read their own profile via /api/user/:id
+      idorChecker: (req) => {
+        const sessionId = req.session?.userId;
+        const paramId   = parseInt(req.params?.id, 10);
+        if (paramId && sessionId && paramId !== sessionId) {
+          return { type: 'idor', matched: 'accessing another user\'s resource', raw: `session=${sessionId} param=${paramId}` };
+        }
+        return null;
+      },
+
+      ddosThreshold: 20,
+      ddosWindowMs:  10_000,
+      bruteForceThreshold: 5,
+    });
+
+    app.use(sw.middleware);
+    console.log('[ShieldWatch] ✅ RASP sensor ACTIVE — Cerebro:', process.env.SW_CEREBRO_URL || 'http://localhost:3002');
   } catch (e) {
     console.warn('[ShieldWatch] ⚠️  Sensor not loaded:', e.message);
   }
