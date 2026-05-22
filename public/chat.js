@@ -27,6 +27,11 @@ let pinnedMsg     = null;     // { msgId, text, username, pinnedBy }
 let isMuted       = false;
 let currentPinnedMsgId = null;
 
+// @mention state
+let mentionActive   = false;
+let mentionStart    = -1;   // index in input where @ begins
+let mentionSelected = -1;   // currently highlighted dropdown index
+
 // ─── DOM Refs ───────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
@@ -306,9 +311,23 @@ async function fetchMessages(roomId) {
     lastMsgDate = null;
     msgs.forEach(m => appendMessage(m, false));
     scrollToBottom(false);
+    // Load all reactions for this room in one request
+    loadRoomReactions(roomId);
   } catch (e) {
     console.error('Failed to load messages', e);
   }
+}
+
+async function loadRoomReactions(roomId) {
+  try {
+    const res  = await fetch(`/api/reactions/room/${roomId}`);
+    const data = await res.json();
+    if (!data.reactions) return;
+    Object.entries(data.reactions).forEach(([msgId, reactions]) => {
+      const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+      if (el) renderReactions(el, parseInt(msgId), reactions);
+    });
+  } catch(e) {}
 }
 
 async function loadPinnedMessage(roomId) {
@@ -418,7 +437,7 @@ function appendMessage(msg, animate = true) {
     pinBtn +
     deleteBtn +
     '</div>' +
-    '<div class="msg-bubble">' + replyHtml + '<div class="msg-text">' + escapeHTML(msg.text) + '</div><div class="msg-meta">' + time + '</div></div>' +
+    '<div class="msg-bubble">' + replyHtml + '<div class="msg-text">' + renderMessageText(msg.text) + '</div><div class="msg-meta">' + time + '</div></div>' +
     '</div>' +
     '<div class="msg-reactions" id="rxns-' + msgId + '"></div>' +
     '</div>' +
@@ -484,12 +503,32 @@ function renderReactions(wrapper, msgId, reactions) {
   container.innerHTML = '';
   if (!reactions || !reactions.length) return;
   reactions.forEach(r => {
-    const users = (r.users || '').split(',').filter(Boolean);
+    const users  = (r.users || '').split(',').filter(Boolean);
     const isMine = users.includes(currentUser?.username);
-    const chip = document.createElement('div');
+    const chip   = document.createElement('div');
     chip.className = 'rxn-chip' + (isMine ? ' mine' : '');
-    chip.innerHTML = `<span>${r.emoji}</span><span class="rxn-count">${r.count}</span>`;
-    chip.title = users.join(', ');
+
+    // Inline short names: show up to 2 names, then "+N more"
+    let namesLabel = '';
+    if (users.length === 1) {
+      namesLabel = users[0];
+    } else if (users.length === 2) {
+      namesLabel = users.join(', ');
+    } else {
+      namesLabel = `${users[0]} +${users.length - 1}`;
+    }
+
+    // Full list for the hover tooltip
+    const fullNames = users.length > 5
+      ? users.slice(0, 5).join(', ') + ` +${users.length - 5} more`
+      : users.join(', ');
+
+    chip.innerHTML =
+      `<span>${r.emoji}</span>` +
+      `<span class="rxn-count">${r.count}</span>` +
+      `<span class="rxn-names">${escapeHTML(namesLabel)}</span>` +
+      `<div class="rxn-tooltip">${escapeHTML(fullNames)}</div>`;
+
     chip.addEventListener('click', () => addReaction(msgId, r.emoji));
     container.appendChild(chip);
   });
@@ -594,6 +633,32 @@ function sendMessage() {
 
 sendBtn.addEventListener('click', sendMessage);
 msgInput.addEventListener('keydown', (e) => {
+  // ── @mention dropdown keyboard nav ──────────────────────────────────────────
+  if (mentionActive) {
+    const dd    = $('mentionDropdown');
+    const items = dd ? [...dd.querySelectorAll('.mention-item')] : [];
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      mentionSelected = Math.min(mentionSelected + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('selected', i === mentionSelected));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      mentionSelected = Math.max(mentionSelected - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('selected', i === mentionSelected));
+      return;
+    }
+    if (e.key === 'Tab' || (e.key === 'Enter' && mentionSelected >= 0 && items.length)) {
+      const sel = items[mentionSelected] || items[0];
+      if (sel) { e.preventDefault(); completeMention(sel.dataset.username); return; }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      hideMentionDropdown();
+      return;
+    }
+  }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
@@ -611,7 +676,81 @@ msgInput.addEventListener('input', () => {
   if (!isTyping) { isTyping = true; socket.emit('typing_start', currentRoom.id); }
   clearTimeout(typingTimer);
   typingTimer = setTimeout(() => { isTyping = false; socket.emit('typing_stop', currentRoom.id); }, 1500);
+  // @mention detection
+  checkMention();
 });
+
+// ─── @Mention System ──────────────────────────────────────────────────────────
+function checkMention() {
+  const val    = msgInput.value;
+  const cursor = msgInput.selectionStart;
+  const before = val.slice(0, cursor);
+  const match  = before.match(/@(\w*)$/);
+  if (match) {
+    mentionStart  = cursor - match[0].length;
+    mentionActive = true;
+    renderMentionDropdown(match[1].toLowerCase());
+  } else {
+    hideMentionDropdown();
+  }
+}
+
+function renderMentionDropdown(query) {
+  const dd = $('mentionDropdown');
+  if (!dd) return;
+
+  const all     = dedupeByUserId(onlineUsers);
+  const matches = all
+    .filter(u => u.userId !== currentUser?.id)
+    .filter(u => !query || u.username.toLowerCase().startsWith(query))
+    .slice(0, 7);
+
+  if (!matches.length) { hideMentionDropdown(); return; }
+
+  mentionSelected = 0;
+  dd.innerHTML    = '';
+
+  matches.forEach((u, i) => {
+    const item = document.createElement('div');
+    item.className      = 'mention-item' + (i === 0 ? ' selected' : '');
+    item.dataset.username = u.username;
+    const roleTag = u.role === 'admin'
+      ? '<span class="mention-role">Admin</span>'
+      : '';
+    item.innerHTML =
+      `<div class="mention-avatar" style="background:${escapeHTML(u.avatar_color || '#4f59e8')}">${u.username[0].toUpperCase()}</div>` +
+      `<span class="mention-name">${escapeHTML(u.username)}</span>` +
+      roleTag;
+    item.addEventListener('mouseenter', () => {
+      mentionSelected = i;
+      dd.querySelectorAll('.mention-item').forEach((el, j) => el.classList.toggle('selected', j === i));
+    });
+    item.addEventListener('click', () => completeMention(u.username));
+    dd.appendChild(item);
+  });
+
+  dd.style.display = 'flex';
+}
+
+function completeMention(username) {
+  const val    = msgInput.value;
+  const cursor = msgInput.selectionStart;
+  const before = val.slice(0, mentionStart);
+  const after  = val.slice(cursor);
+  msgInput.value = before + '@' + username + ' ' + after;
+  const newPos   = before.length + username.length + 2;
+  msgInput.setSelectionRange(newPos, newPos);
+  hideMentionDropdown();
+  msgInput.focus();
+}
+
+function hideMentionDropdown() {
+  mentionActive   = false;
+  mentionStart    = -1;
+  mentionSelected = -1;
+  const dd = $('mentionDropdown');
+  if (dd) dd.style.display = 'none';
+}
 
 // ─── Scroll Tracking + FAB ───────────────────────────────────────────────────
 function initScrollTracking() {
@@ -689,11 +828,16 @@ function initEmojiPicker() {
     $('emojiBtn').classList.toggle('active', picker.classList.contains('open'));
   });
 
-  // BUG FIX #7: Close emoji picker on outside click (without blocking reaction btn clicks)
+  // BUG FIX #7: Close emoji picker on outside click
   document.addEventListener('click', (e) => {
     if (!picker.contains(e.target) && e.target !== $('emojiBtn')) {
       picker.classList.remove('open');
       $('emojiBtn').classList.remove('active');
+    }
+    // Also close mention dropdown when clicking outside the input area
+    const dd = $('mentionDropdown');
+    if (dd && !dd.contains(e.target) && e.target !== msgInput) {
+      hideMentionDropdown();
     }
   });
 }
@@ -1128,6 +1272,15 @@ function escapeHTML(str) {
   return String(str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Render message text — escapes HTML then highlights @mentions
+function renderMessageText(text) {
+  const escaped = escapeHTML(text);
+  return escaped.replace(/@(\w+)/g, (match, name) => {
+    const isMe = name === currentUser?.username;
+    return `<span class="mention-highlight${isMe ? ' me' : ''}">@${name}</span>`;
+  });
 }
 
 function formatTime(isoString) {

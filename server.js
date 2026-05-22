@@ -294,13 +294,32 @@ app.get('/api/pinned/:roomId', requireAuth, (req, res) => {
   res.json({ ok: true, pin: pin || null });
 });
 
-// ─── Reactions for a message ──────────────────────────────────────────────────
+// ─── Reactions for a single message ──────────────────────────────────────────
 app.get('/api/reactions/:msgId', requireAuth, (req, res) => {
   const prepare = getPrepare();
   const rows = prepare(
     'SELECT emoji, COUNT(*) as count, GROUP_CONCAT(username) as users FROM reactions WHERE message_id = ? GROUP BY emoji'
   ).all(req.params.msgId);
   res.json({ ok: true, reactions: rows });
+});
+
+// ─── Bulk reactions for an entire room (loaded once when entering a room) ─────
+app.get('/api/reactions/room/:roomId', requireAuth, (req, res) => {
+  const prepare = getPrepare();
+  const rows = prepare(`
+    SELECT r.message_id, r.emoji, COUNT(*) as count, GROUP_CONCAT(r.username) as users
+    FROM reactions r
+    INNER JOIN messages m ON m.id = r.message_id
+    WHERE m.room_id = ?
+    GROUP BY r.message_id, r.emoji
+  `).all(req.params.roomId);
+  // Group by message_id → { [msgId]: [{emoji, count, users}] }
+  const grouped = {};
+  rows.forEach(row => {
+    if (!grouped[row.message_id]) grouped[row.message_id] = [];
+    grouped[row.message_id].push({ emoji: row.emoji, count: row.count, users: row.users });
+  });
+  res.json({ ok: true, reactions: grouped });
 });
 
 // ─── Files List ───────────────────────────────────────────────────────────────

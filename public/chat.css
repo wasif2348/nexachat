@@ -123,7 +123,8 @@ html,body{
 
 /* online section */
 .online-section{flex:1;overflow-y:auto;padding:4px 0;}
-.online-section::-webkit-scrollbar{width:3px;}
+.online-section::-webkit-scrollbar{width:0;}
+.online-section:hover::-webkit-scrollbar{width:3px;}
 .online-section::-webkit-scrollbar-thumb{background:var(--b1);border-radius:4px;}
 .online-avatar{
   width:26px;height:26px;border-radius:50%;
@@ -215,10 +216,13 @@ html,body{
   padding:14px 18px 6px;
   display:flex;flex-direction:column;gap:1px;
 }
-.messages-list::-webkit-scrollbar{width:5px;}
+.messages-list{scrollbar-width:none;}
+.messages-list::-webkit-scrollbar{width:0;background:transparent;}
+.messages-list:hover{scrollbar-width:thin;scrollbar-color:var(--b1) transparent;}
+.messages-list:hover::-webkit-scrollbar{width:3px;}
 .messages-list::-webkit-scrollbar-track{background:transparent;}
 .messages-list::-webkit-scrollbar-thumb{background:var(--b1);border-radius:4px;}
-.messages-list::-webkit-scrollbar-thumb:hover{background:var(--b2);}
+.messages-list:hover::-webkit-scrollbar-thumb{background:var(--b2);}
 
 /* welcome */
 .messages-welcome{
@@ -308,15 +312,31 @@ html,body{
 /* reactions strip */
 .msg-reactions{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;padding:0 1px;}
 .rxn-chip{
-  display:flex;align-items:center;gap:3px;
+  display:flex;align-items:center;gap:4px;
   background:rgba(255,255,255,.04);border:1px solid var(--b0);
-  border-radius:16px;padding:2px 7px;
-  cursor:pointer;font-size:13px;
+  border-radius:16px;padding:3px 9px;
+  cursor:pointer;font-size:13px;position:relative;
   transition:background .12s,border-color .12s;user-select:none;
 }
 .rxn-chip:hover{background:rgba(255,255,255,.07);border-color:var(--b1);}
 .rxn-chip.mine{background:var(--ind-bg);border-color:var(--ind-bg2);}
-.rxn-chip .rxn-count{font-size:12px;color:var(--t2);font-weight:500;}
+.rxn-chip .rxn-count{font-size:12px;color:var(--t2);font-weight:600;}
+.rxn-chip .rxn-names{
+  font-size:11.5px;color:var(--t3);font-weight:500;
+  max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+/* hover tooltip showing full names list */
+.rxn-tooltip{
+  position:absolute;bottom:calc(100% + 6px);left:50%;
+  transform:translateX(-50%);
+  background:var(--s3);border:1px solid var(--b1);
+  border-radius:7px;padding:5px 9px;
+  font-size:12px;color:var(--t2);white-space:nowrap;
+  opacity:0;pointer-events:none;
+  transition:opacity .12s;z-index:50;
+  box-shadow:0 4px 14px rgba(0,0,0,.4);
+}
+.rxn-chip:hover .rxn-tooltip{opacity:1;}
 
 
 /* deleted / edited */
@@ -450,7 +470,10 @@ html,body{
 }
 .members-header svg{width:14px;height:14px;}
 .members-body{flex:1;overflow-y:auto;padding:6px 0;}
-.members-body::-webkit-scrollbar{width:3px;}
+.members-body{scrollbar-width:none;}
+.members-body::-webkit-scrollbar{width:0;}
+.members-body:hover{scrollbar-width:thin;scrollbar-color:var(--b1) transparent;}
+.members-body:hover::-webkit-scrollbar{width:3px;}
 .members-body::-webkit-scrollbar-thumb{background:var(--b1);border-radius:4px;}
 .members-section-label{
   padding:5px 14px 3px;
@@ -715,6 +738,44 @@ html,body{
 .slow-preset-btn:hover{background:var(--s3);color:var(--t1);}
 .slow-preset-btn.active{
   background:var(--ind-bg2);border-color:var(--ind);color:var(--ind-l);
+}
+
+/* ══════════════════════════════ @MENTION DROPDOWN ══════════════════════════════ */
+.mention-dropdown{
+  position:absolute;bottom:calc(100% + 8px);left:0;right:0;
+  background:var(--s3);border:1px solid var(--b1);
+  border-radius:11px;overflow:hidden;
+  box-shadow:0 8px 28px rgba(0,0,0,.55);
+  z-index:120;flex-direction:column;
+  animation:mdIn .12s var(--ease);
+  max-height:240px;overflow-y:auto;
+}
+.mention-item{
+  display:flex;align-items:center;gap:9px;
+  padding:8px 12px;cursor:pointer;
+  transition:background .1s;
+}
+.mention-item:hover,.mention-item.selected{background:rgba(79,89,232,.1);}
+.mention-avatar{
+  width:26px;height:26px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;
+}
+.mention-name{font-size:13px;font-weight:500;color:var(--t1);}
+.mention-role{
+  font-size:10px;font-weight:700;padding:1px 5px;
+  border-radius:4px;background:rgba(79,89,232,.15);
+  color:var(--ind-l);border:1px solid rgba(79,89,232,.2);
+  margin-left:auto;
+}
+/* @username highlight inside message bubbles */
+.mention-highlight{
+  color:var(--ind-l);font-weight:600;
+  background:rgba(79,89,232,.1);border-radius:3px;
+  padding:0 2px;
+}
+.mention-highlight.me{
+  color:#fbbf24;background:rgba(251,191,36,.1);
 }
 
 /* ══════════════════════════════ RESPONSIVE ══════════════════════════════ */
