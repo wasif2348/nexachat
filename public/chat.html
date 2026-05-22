@@ -25,6 +25,9 @@
         <button class="icon-btn" id="searchToggleBtn" title="Search (⌘K)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         </button>
+        <button class="icon-btn sidebar-close-btn" id="sidebarCloseBtn" title="Close menu" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
       </div>
     </div>
 
@@ -186,7 +189,7 @@
           <span class="char-count" id="charCount"></span>
           <button class="send-btn" id="sendBtn" title="Send (Enter)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            Send
+            <span class="send-text">Send</span>
           </button>
         </div>
       </div>
@@ -327,6 +330,9 @@
 
 <!-- ══ TOAST NOTIFICATIONS ══════════════════════════════════════ -->
 <div class="toast-container" id="toastContainer"></div>
+
+<!-- ══ MOBILE SIDEBAR BACKDROP ══════════════════════════════════ -->
+<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
 <!-- ══ ANNOUNCEMENT BANNER ══════════════════════════════════════ -->
 <div class="announce-banner" id="announceBanner" style="display:none">

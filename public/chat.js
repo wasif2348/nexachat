@@ -257,6 +257,7 @@ async function joinRoom(room) {
   currentRoom = room;
   lastMsgUser = null;
   lastMsgDate = null;
+  closeSidebarOnMobile(); // auto-close sidebar when switching channels on phone
 
   document.querySelectorAll('.room-item').forEach(el =>
     el.classList.toggle('active', parseInt(el.dataset.id) === room.id));
@@ -780,10 +781,31 @@ function scrollToBottom(smooth = true) {
   });
 }
 
-// ─── Sidebar Toggle ───────────────────────────────────────────────────────────
-$('sidebarToggle').addEventListener('click', () => $('sidebar').classList.toggle('open'));
-$('main').addEventListener('click', () => {
-  if (window.innerWidth <= 680) $('sidebar').classList.remove('open');
+// ─── Sidebar Toggle (mobile) ──────────────────────────────────────────────────
+function openSidebar() {
+  $('sidebar').classList.add('open');
+  $('sidebarBackdrop').classList.add('show');
+}
+function closeSidebar() {
+  $('sidebar').classList.remove('open');
+  $('sidebarBackdrop').classList.remove('show');
+}
+function closeSidebarOnMobile() {
+  if (window.innerWidth <= 680) closeSidebar();
+}
+
+$('sidebarToggle').addEventListener('click', () => {
+  if ($('sidebar').classList.contains('open')) closeSidebar();
+  else openSidebar();
+});
+$('sidebarCloseBtn').addEventListener('click', closeSidebar);
+$('sidebarBackdrop').addEventListener('click', closeSidebar);
+
+// Close sidebar when tapping directly on main (not a child interaction)
+$('main').addEventListener('click', (e) => {
+  if (window.innerWidth <= 680 && $('sidebar').classList.contains('open')) {
+    closeSidebar();
+  }
 });
 
 // ─── Logout ───────────────────────────────────────────────────────────────────

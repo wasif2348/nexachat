@@ -779,20 +779,90 @@ html,body{
 }
 
 /* ══════════════════════════════ RESPONSIVE ══════════════════════════════ */
+
+/* ── Mobile sidebar backdrop ── */
+.sidebar-backdrop{
+  display:none;
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.55);
+  z-index:190;
+  backdrop-filter:blur(2px);
+  -webkit-backdrop-filter:blur(2px);
+}
+.sidebar-backdrop.show{display:block;}
+
 @media(max-width:900px){
   .app{grid-template-columns:var(--sw) 1fr;}
   .members-panel{display:none;}
 }
+
 @media(max-width:680px){
+  /* ── Layout ── */
   .app{grid-template-columns:1fr;}
+
+  /* ── Sidebar: slide-over panel ── */
   .sidebar{
     position:fixed;left:0;top:0;bottom:0;width:var(--sw);
     z-index:200;transform:translateX(-100%);
-    transition:transform .2s var(--ease);
-    box-shadow:4px 0 20px rgba(0,0,0,.4);
+    transition:transform .22s var(--ease);
+    box-shadow:6px 0 28px rgba(0,0,0,.55);
   }
-  .sidebar.open{transform:none;}
+  .sidebar.open{transform:translateX(0);}
+
+  /* ── Sidebar close button shown on mobile ── */
+  .sidebar-close-btn{display:flex!important;}
+
+  /* ── Hamburger toggle button visible ── */
   .sidebar-toggle{display:flex;}
-  .channel-header{padding:0 14px;}
-  .scroll-fab{bottom:100px;right:12px;}
+
+  /* ── Touch-friendly channel/user rows ── */
+  .room-item,.online-item{
+    padding:10px 14px;
+    min-height:44px;
+    margin:1px 6px;
+  }
+  .room-name{font-size:14px;}
+  .nav-section-title{padding:6px 14px 5px;}
+
+  /* ── Compact channel header ── */
+  .channel-header{padding:0 12px;gap:8px;}
+  .channel-desc{display:none;}
+  .member-count{display:none;}
+  .sw-badge .sw-badge-label{display:none;}   /* show dot only, not text */
+  .sw-badge{padding:4px 7px;}
+
+  /* ── Wider message bubbles on phone ── */
+  .msg-content{max-width:88%;}
+
+  /* ── Input area: hide char count, icon-only Send ── */
+  .char-count{display:none;}
+  .send-btn .send-text{display:none;}
+  .send-btn{padding:6px 10px;}
+
+  /* ── Scroll FAB clear of input ── */
+  .scroll-fab{bottom:80px;right:12px;}
+
+  /* ── Toasts: full-width at bottom ── */
+  .toast-container{left:12px;right:12px;bottom:76px;}
+  .toast{max-width:100%;min-width:0;}
+
+  /* ── File modal: stack panes vertically ── */
+  .modal-files{width:96vw;height:82vh;}
+  .files-body{flex-direction:column;}
+  .file-pane{width:100%;height:130px;border-right:none;border-bottom:1px solid var(--b0);flex-shrink:0;}
+  .viewer-pane{flex:1;min-height:0;}
+
+  /* ── Emoji picker: tighter grid ── */
+  .emoji-picker{grid-template-columns:repeat(7,1fr);min-width:0;left:0;right:0;}
+
+  /* ── Members/slow mode modal ── */
+  .modal-sm{width:90vw;}
+}
+
+/* ── Very small screens (≤400px) ── */
+@media(max-width:400px){
+  .sw-badge{display:none;}
+  .admin-toolbar{display:none;}
+  .header-actions{gap:4px;}
+  .channel-icon{display:none;}
 }
