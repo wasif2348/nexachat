@@ -41,7 +41,7 @@ const sessionMiddleware = session({
   secret:            SESSION_SECRET,
   resave:            false,
   saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true, secure: process.env.NODE_ENV === 'production' }
+  cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true, secure: process.env.COOKIE_SECURE === 'true' }
 });
 
 app.use(cors());
