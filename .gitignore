@@ -4,3 +4,10 @@ nexachat.db
 .env
 .DS_Store
 npm-debug.log*
+uploads/
+fly.toml
+render.yaml
+Dockerfile
+.dockerignore
+RED_TEAM_AUDIT.md
+.claude/
