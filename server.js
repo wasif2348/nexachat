@@ -72,7 +72,7 @@ if (process.env.SW_ENABLED === 'true') {
   try {
     const ShieldWatch = require('shieldwatch-sensor');
     sw = ShieldWatch.create({
-      collectorUrl: process.env.SW_CEREBRO_URL || 'http://localhost:3002',
+      collectorUrl: process.env.SW_CEREBRO_URL || process.env.SW_CEREBRO_ADDR || 'http://localhost:3002',
       appId:        process.env.SW_APP_ID      || 'nexachat',
 
       // CSRF: profile update must come from JS fetch, not cross-site form
@@ -249,7 +249,8 @@ app.post('/api/logout', (req, res) => {
 
 // ─── ShieldWatch Status (for dashboard badge) ─────────────────────────────────
 app.get('/api/sw/status', (req, res) => {
-  res.json({ enabled: process.env.SW_ENABLED === 'true' });
+  // Use !!sw (sensor actually loaded) not env var — env=true but failed load = still unprotected
+  res.json({ enabled: !!sw });
 });
 
 // ─── Current User ─────────────────────────────────────────────────────────────
