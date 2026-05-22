@@ -29,7 +29,7 @@ module.exports = {
       // If Cerebro is on your laptop, you need a tunnel so EC2 can reach it.
       // If Cerebro is on another server with a public IP, paste that IP:port here.
       SW_ENABLED:     'true',
-      SW_CEREBRO_URL: 'http://PASTE_CEREBRO_ADDRESS_HERE:3002',
+      SW_CEREBRO_URL: 'http://localhost:3002',
       SW_APP_ID:      'nexachat-ec2',
       SW_LOG_ONLY:    'false',
     }
