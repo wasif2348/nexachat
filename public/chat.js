@@ -426,7 +426,7 @@ function appendMessage(msg, animate = true) {
     </button>` : '';
 
   wrapper.innerHTML =
-    (isMine ? '<div class="msg-avatar-gap"></div>' : avatarHtml) +
+    avatarHtml +
     '<div class="msg-content">' +
     senderHtml +
     '<div style="position:relative">' +
@@ -441,8 +441,7 @@ function appendMessage(msg, animate = true) {
     '<div class="msg-bubble">' + replyHtml + '<div class="msg-text">' + renderMessageText(msg.text) + '</div><div class="msg-meta">' + time + '</div></div>' +
     '</div>' +
     '<div class="msg-reactions" id="rxns-' + msgId + '"></div>' +
-    '</div>' +
-    (isMine ? avatarHtml : '');
+    '</div>';
 
   // Wire toolbar actions
   wrapper.querySelectorAll('[data-action]').forEach(btn => {
@@ -481,11 +480,10 @@ function appendDeletedMessage(msg) {
     : `<div class="msg-avatar" style="background:${escapeHTML(color)}">${escapeHTML(msg.username[0].toUpperCase())}</div>`;
   const isMine = currentUser && msg.username === currentUser.username;
   wrapper.innerHTML =
-    (isMine ? '<div class="msg-avatar-gap"></div>' : avatarHtml) +
+    avatarHtml +
     '<div class="msg-content"><div style="position:relative"><div class="msg-bubble" style="background:rgba(248,113,113,.04);border-color:rgba(248,113,113,.08)">' +
     '<em class="msg-deleted">This message was deleted</em>' +
-    '<div class="msg-meta">' + formatTime(msg.created_at) + '</div></div></div></div>' +
-    (isMine ? avatarHtml : '');
+    '<div class="msg-meta">' + formatTime(msg.created_at) + '</div></div></div></div>';
   msgsList.appendChild(wrapper);
 }
 
