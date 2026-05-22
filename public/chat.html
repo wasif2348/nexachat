@@ -92,12 +92,36 @@
           <span class="member-dot"></span>
           <span id="memberCount">0</span>&nbsp;online
         </div>
+        <!-- Admin toolbar (shown only when logged in as admin) -->
+        <div class="admin-toolbar" id="adminToolbar" style="display:none">
+          <button class="admin-header-btn" id="broadcastBtn" title="Broadcast Announcement to all rooms">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Announce
+          </button>
+          <button class="admin-header-btn" id="slowModeBtn" title="Set Slow Mode for this room">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Slow Mode
+          </button>
+        </div>
         <div class="sw-badge" id="swBadge">
           <span class="sw-badge-dot"></span>
           <span class="sw-badge-label" id="swBadgeLabel">Checking…</span>
         </div>
       </div>
     </header>
+
+    <!-- Pinned Message Bar (hidden until a message is pinned) -->
+    <div class="pinned-bar" id="pinnedBar" style="display:none">
+      <svg class="pinned-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <span class="pinned-label">Pinned</span>
+      <span class="pinned-who" id="pinnedBarUser"></span>
+      <span class="pinned-sep">·</span>
+      <span class="pinned-text" id="pinnedBarText"></span>
+      <button class="pinned-jump-btn" id="pinnedBarJump">Jump</button>
+      <button class="icon-btn pinned-unpin-btn admin-only-el" id="pinnedBarUnpin" title="Unpin message" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
 
     <!-- Messages -->
     <div class="messages-list" id="messagesList">
@@ -119,6 +143,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
       <span class="scroll-fab-badge" id="scrollFabBadge"></span>
     </button>
+
+    <!-- Slow Mode Bar (visible to all users when room is in slow mode) -->
+    <div class="slow-mode-bar" id="slowModeBar" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span id="slowModeText">Slow mode is on</span>
+      <span class="slow-countdown" id="slowCountdown"></span>
+    </div>
 
     <!-- Reply bar -->
     <div class="reply-bar" id="replyBar">
@@ -224,6 +255,87 @@
       <button class="icon-btn modal-close" id="profileClose">✕</button>
     </div>
     <div class="modal-body" id="profileBody"></div>
+  </div>
+</div>
+
+<!-- ══ BROADCAST MODAL (admin only) ═════════════════════════════ -->
+<div class="modal-overlay" id="broadcastModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:#f59e0b"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <h3>Broadcast Announcement</h3>
+      </div>
+      <button class="icon-btn modal-close" id="broadcastClose">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      <p style="font-size:12.5px;color:var(--t3)">This message will appear in <strong style="color:var(--amber)">every room</strong> for every logged-in user.</p>
+      <textarea id="broadcastText" placeholder="Type your announcement here…" rows="4"
+        style="width:100%;background:var(--s2);border:1px solid var(--b1);border-radius:8px;
+               padding:10px 12px;color:var(--t1);font-size:13.5px;font-family:inherit;
+               resize:vertical;outline:none;min-height:80px;"></textarea>
+      <button id="broadcastSend" class="send-btn" style="align-self:flex-end">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        Send to All Rooms
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SLOW MODE MODAL (admin only) ══════════════════════════════ -->
+<div class="modal-overlay" id="slowModeModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:#818cf8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <h3>Slow Mode</h3>
+      </div>
+      <button class="icon-btn modal-close" id="slowModeClose">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:10px">
+      <p style="font-size:12.5px;color:var(--t3)">Limit how often users can send messages in <strong style="color:var(--t1)" id="slowModeRoomName">#general</strong>. Admins are exempt.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="slow-preset-btn" data-sec="0">Off</button>
+        <button class="slow-preset-btn" data-sec="5">5s</button>
+        <button class="slow-preset-btn" data-sec="15">15s</button>
+        <button class="slow-preset-btn" data-sec="30">30s</button>
+        <button class="slow-preset-btn" data-sec="60">1 min</button>
+        <button class="slow-preset-btn" data-sec="300">5 min</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="slowModeCustom" type="number" min="1" max="3600" placeholder="Custom seconds…"
+          style="flex:1;background:var(--s2);border:1px solid var(--b1);border-radius:7px;
+                 padding:7px 10px;color:var(--t1);font-size:13px;outline:none">
+        <button id="slowModeCustomApply" class="path-btn">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ KICKED OVERLAY ════════════════════════════════════════════ -->
+<div class="kicked-overlay" id="kickedOverlay">
+  <div class="kicked-card">
+    <div class="kicked-icon">🚫</div>
+    <h2 class="kicked-title">Removed from chat</h2>
+    <p class="kicked-msg" id="kickedMsg">An admin has removed you from the chat.</p>
+    <button class="send-btn" onclick="window.location.href='/'">Back to Login</button>
+  </div>
+</div>
+
+<!-- ══ TOAST NOTIFICATIONS ══════════════════════════════════════ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ══ ANNOUNCEMENT BANNER ══════════════════════════════════════ -->
+<div class="announce-banner" id="announceBanner" style="display:none">
+  <div class="announce-inner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+    <div class="announce-body">
+      <span class="announce-by" id="announceBy"></span>
+      <span class="announce-text" id="announceText"></span>
+    </div>
+    <button class="icon-btn" id="announceDismiss" style="flex-shrink:0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
   </div>
 </div>
 

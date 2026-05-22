@@ -1,6 +1,6 @@
 /* ─── NexaChat — Chat Interface ─────────────────────────────────────────────
  *
- * ⚠️  INTENTIONAL VULNERABILITIES (for ShieldWatch demo):
+ * ⚠️  INTENTIONAL VULNERABILITIES (for ShieldWatch demo — DO NOT FIX):
  *
  *  1. renderSearchResults() — uses innerHTML to render data.query raw
  *     XSS payload: search for <img src=x onerror=alert('XSS')>
@@ -18,52 +18,61 @@ let onlineUsers  = [];
 const typingUsers = new Set();
 let typingTimer   = null;
 let isTyping      = false;
-let unreadCount   = 0;        // unread messages while scrolled up
-let isAtBottom    = true;     // scroll position tracking
+let unreadCount   = 0;
+let isAtBottom    = true;
+let replyContext  = null;
+let slowModeActive = 0;       // seconds for current room
+let slowCdTimer   = null;     // interval for countdown
+let pinnedMsg     = null;     // { msgId, text, username, pinnedBy }
+let isMuted       = false;
+let currentPinnedMsgId = null;
 
 // ─── DOM Refs ───────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
-const msgsList      = $('messagesList');
-const msgInput      = $('msgInput');
-const sendBtn       = $('sendBtn');
-const roomListEl    = $('roomList');
-const onlineListEl  = $('onlineList');
-const onlineCount   = $('onlineCount');
-const channelName   = $('channelName');
-const channelDesc   = $('channelDesc');
-const channelIcon   = $('channelIcon');
-const welcomeRoom   = $('welcomeRoom');
-const memberCount   = $('memberCount');
-const typingBar     = $('typingBar');
-const typingText    = $('typingText');
-const myAvatar      = $('myAvatar');
-const myUsername    = $('myUsername');
-const myRole        = $('myRole');
-const searchPanel   = $('searchPanel');
-const searchInput   = $('searchInput');
-const searchResults = $('searchResults');
-const scrollFab     = $('scrollFab');
+const msgsList       = $('messagesList');
+const msgInput       = $('msgInput');
+const sendBtn        = $('sendBtn');
+const roomListEl     = $('roomList');
+const onlineListEl   = $('onlineList');
+const onlineCount    = $('onlineCount');
+const channelName    = $('channelName');
+const channelDesc    = $('channelDesc');
+const channelIcon    = $('channelIcon');
+const welcomeRoom    = $('welcomeRoom');
+const memberCount    = $('memberCount');
+const typingBar      = $('typingBar');
+const typingText     = $('typingText');
+const myAvatar       = $('myAvatar');
+const myUsername     = $('myUsername');
+const myRole         = $('myRole');
+const searchPanel    = $('searchPanel');
+const searchInput    = $('searchInput');
+const searchResults  = $('searchResults');
+const scrollFab      = $('scrollFab');
 const scrollFabBadge = $('scrollFabBadge');
-const charCount     = $('charCount');
-const swBadge       = $('swBadge');
-const swBadgeLabel  = $('swBadgeLabel');
+const charCount      = $('charCount');
+const swBadge        = $('swBadge');
+const swBadgeLabel   = $('swBadgeLabel');
 
 // ─── Socket.io ──────────────────────────────────────────────────────────────
 const socket = io({ transports: ['websocket', 'polling'] });
 
 socket.on('connect', () => {
   console.log('[Socket] Connected', socket.id);
-  if (currentRoom) socket.emit('join_room', currentRoom.id);
+  // BUG FIX #6: On reconnect, re-join room AND re-fetch missed messages
+  if (currentRoom) {
+    socket.emit('join_room', currentRoom.id);
+    fetchMessages(currentRoom.id);
+  }
 });
 socket.on('disconnect', () => console.log('[Socket] Disconnected'));
 
 socket.on('chat_message', (msg) => {
+  appendMessage(msg);
   if (isAtBottom) {
-    appendMessage(msg);
     scrollToBottom();
   } else {
-    appendMessage(msg);
     unreadCount++;
     scrollFabBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
     scrollFabBadge.classList.add('show');
@@ -74,6 +83,86 @@ socket.on('users_update', (users) => {
   onlineUsers = users;
   renderOnlineUsers();
   renderMemberCount();
+});
+
+// ─── Bug Fix #1: Delete broadcast ───────────────────────────────────────────
+socket.on('message_deleted', ({ msgId }) => {
+  const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+  if (!el) return;
+  const bubble = el.querySelector('.msg-bubble');
+  if (!bubble) return;
+  bubble.innerHTML = '<em class="msg-deleted">This message was deleted</em>';
+  bubble.style.cssText += ';background:rgba(248,113,113,.04);border-color:rgba(248,113,113,.08);';
+  const actions = el.querySelector('.msg-actions');
+  if (actions) actions.innerHTML = '';
+  const rxns = el.querySelector('.msg-reactions');
+  if (rxns) rxns.innerHTML = '';
+});
+
+// ─── Bug Fix #2: Reactions broadcast ────────────────────────────────────────
+socket.on('reaction_update', ({ msgId, reactions }) => {
+  const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+  if (!el) return;
+  renderReactions(el, msgId, reactions);
+});
+
+// ─── Admin Events ────────────────────────────────────────────────────────────
+socket.on('kicked', ({ by }) => {
+  $('kickedMsg').textContent = `You were removed from the chat by ${escapeHTML(by)}.`;
+  $('kickedOverlay').classList.add('show');
+});
+
+socket.on('you_are_muted', ({ until, by }) => {
+  isMuted = true;
+  msgInput.disabled = true;
+  msgInput.placeholder = '🔇 You have been muted by admin';
+  const label = until === Infinity
+    ? 'You have been permanently muted by an admin.'
+    : `You have been muted until ${new Date(until).toLocaleTimeString()}.`;
+  showToast(label, 'error');
+});
+
+socket.on('you_are_unmuted', () => {
+  isMuted = false;
+  msgInput.disabled = false;
+  msgInput.placeholder = currentRoom ? `Message #${currentRoom.name}` : 'Message…';
+  showToast('You have been unmuted.', 'success');
+});
+
+socket.on('system_message', ({ text }) => {
+  appendSystemMessage(text);
+});
+
+socket.on('message_pinned', ({ msgId, text, username, pinnedBy }) => {
+  currentPinnedMsgId = msgId;
+  showPinnedBar({ msgId, text, username, pinnedBy });
+});
+
+socket.on('message_unpinned', () => {
+  currentPinnedMsgId = null;
+  hidePinnedBar();
+});
+
+socket.on('slow_mode_update', ({ roomId, seconds }) => {
+  if (!currentRoom || currentRoom.id !== roomId) return;
+  slowModeActive = seconds;
+  updateSlowModeUI();
+});
+
+socket.on('global_announcement', ({ text, by }) => {
+  showAnnouncementBanner(text, by);
+});
+
+socket.on('admin_toast', ({ msg, type }) => {
+  showToast(msg, type || 'info');
+});
+
+socket.on('message_blocked', ({ error, threat, remainingMs }) => {
+  if (threat === 'slowmode' && remainingMs) {
+    startSlowCountdown(Math.ceil(remainingMs / 1000));
+  } else {
+    showToast(error || 'Message blocked by ShieldWatch.', 'error');
+  }
 });
 
 // ─── Typing ─────────────────────────────────────────────────────────────────
@@ -100,11 +189,16 @@ async function init() {
     rooms       = await roomsRes.json();
 
     myUsername.textContent    = currentUser.username;
-    document.querySelector('.brand-text') && (document.querySelector('.brand-text').innerHTML = 'Nexa<em style="font-style:normal;color:var(--ind-l)">Chat</em>');
     myRole.textContent        = currentUser.role === 'admin' ? '⚑ Admin' : 'Member';
     myAvatar.textContent      = currentUser.username[0].toUpperCase();
     myAvatar.style.background = currentUser.avatar_color || '#3b82f6';
     myAvatar.style.borderRadius = '50%';
+
+    // Show admin toolbar
+    if (currentUser.role === 'admin') {
+      $('adminToolbar').style.display = 'flex';
+      document.querySelectorAll('.admin-only-el').forEach(el => el.style.display = '');
+    }
 
     renderRooms();
     if (rooms.length > 0) joinRoom(rooms[0]);
@@ -112,6 +206,7 @@ async function init() {
     initScrollTracking();
     initEmojiPicker();
     checkShieldWatchStatus();
+    initAdminUI();
 
   } catch (e) {
     console.error('Init error', e);
@@ -165,7 +260,7 @@ async function joinRoom(room) {
   channelDesc.textContent = room.description || '';
   channelIcon.textContent = room.icon || '💬';
   welcomeRoom.textContent = room.name;
-  msgInput.placeholder    = `Message #${room.name}`;
+  msgInput.placeholder    = isMuted ? '🔇 You have been muted' : `Message #${room.name}`;
   document.title          = `#${room.name} — NexaChat`;
 
   msgsList.innerHTML = '';
@@ -175,17 +270,61 @@ async function joinRoom(room) {
   unreadCount = 0;
   scrollFabBadge.classList.remove('show');
 
+  // BUG FIX #5: Clear search panel when switching rooms
+  searchInput.value = '';
+  searchResults.innerHTML = '';
+  searchPanel.classList.remove('open');
+
+  // Reset slow mode for new room
+  slowModeActive = 0;
+  updateSlowModeUI();
+  hidePinnedBar();
+  currentPinnedMsgId = null;
+
+  // Update slow mode room name in modal
+  if ($('slowModeRoomName')) $('slowModeRoomName').textContent = `#${room.name}`;
+
   socket.emit('join_room', room.id);
 
+  await fetchMessages(room.id);
+
+  // Load pinned message for this room
+  loadPinnedMessage(room.id);
+
+  renderMemberCount();
+}
+
+async function fetchMessages(roomId) {
   try {
-    const msgs = await (await fetch(`/api/messages/${room.id}`)).json();
+    const msgs = await (await fetch(`/api/messages/${roomId}`)).json();
+    if (!Array.isArray(msgs)) return;
+    // Clear existing messages (keep welcome banner)
+    const welcome = msgsList.querySelector('.messages-welcome');
+    msgsList.innerHTML = '';
+    if (welcome) msgsList.appendChild(welcome);
+    lastMsgUser = null;
+    lastMsgDate = null;
     msgs.forEach(m => appendMessage(m, false));
     scrollToBottom(false);
   } catch (e) {
     console.error('Failed to load messages', e);
   }
+}
 
-  renderMemberCount();
+async function loadPinnedMessage(roomId) {
+  try {
+    const res = await fetch(`/api/pinned/${roomId}`);
+    const data = await res.json();
+    if (data.pin) {
+      currentPinnedMsgId = data.pin.message_id;
+      showPinnedBar({
+        msgId: data.pin.message_id,
+        text: data.pin.message_text,
+        username: data.pin.message_username,
+        pinnedBy: data.pin.pinned_by,
+      });
+    }
+  } catch(e) {}
 }
 
 function appendWelcome(room) {
@@ -199,15 +338,22 @@ function appendWelcome(room) {
   msgsList.appendChild(div);
 }
 
-// ─── Message Rendering — Chat Bubbles ───────────────────────────────────────
+// ─── Message Rendering ───────────────────────────────────────────────────────
 let lastMsgUser = null;
 let lastMsgDate = null;
 
 function appendMessage(msg, animate = true) {
   if (!msg || !msg.username) return;
 
-  const isMine  = currentUser && msg.username === currentUser.username;
-  const msgDate = msg.created_at ? new Date(msg.created_at).toDateString() : null;
+  // Handle deleted messages from REST history
+  if (msg.deleted) {
+    appendDeletedMessage(msg);
+    return;
+  }
+
+  const isMine   = currentUser && msg.username === currentUser.username;
+  const isAdmin  = currentUser && currentUser.role === 'admin';
+  const msgDate  = msg.created_at ? new Date(msg.created_at).toDateString() : null;
 
   // ── Date divider ──
   if (msgDate && msgDate !== lastMsgDate) {
@@ -219,18 +365,19 @@ function appendMessage(msg, animate = true) {
     lastMsgUser = null;
   }
 
-  const grouped = (lastMsgUser === msg.username);
-  lastMsgUser = msg.username;
+  const grouped  = (lastMsgUser === msg.username);
+  lastMsgUser    = msg.username;
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'msg' + (isMine ? ' mine' : '') + (grouped ? ' grouped' : '');
+  const wrapper  = document.createElement('div');
+  wrapper.className = 'msg' + (isMine ? ' mine' : '') + (grouped ? ' grouped' : '') + (animate ? '' : ' no-anim');
   wrapper.dataset.msgId = msg.id;
 
   const time      = formatTime(msg.created_at);
   const initial   = msg.username[0].toUpperCase();
   const color     = msg.avatar_color || '#4f59e8';
-  const roleClass = msg.role === 'admin' ? ' role-admin' : '';
-  const msgId     = msg.id || ('local-' + Date.now());
+  // BUG FIX #4: Use role from msg object (now included in both socket broadcast and REST query)
+  const roleClass = (msg.role === 'admin' || msg.user_role === 'admin') ? ' role-admin' : '';
+  const msgId     = msg.id;
 
   const avatarHtml = grouped
     ? '<div class="msg-avatar-gap"></div>'
@@ -240,11 +387,23 @@ function appendMessage(msg, animate = true) {
     ? '<div class="msg-sender' + roleClass + '" data-user="' + escapeHTML(msg.username) + '">' + escapeHTML(msg.username) + '</div>'
     : '';
 
-  const mineActions = isMine ? `
+  // BUG FIX #3: Render reply quote if this message is a reply
+  const replyHtml = (msg.reply_to_id && msg.reply_to_username)
+    ? `<div class="msg-reply-quote" data-jump="${msg.reply_to_id}">
+         <div class="reply-quote-who">${escapeHTML(msg.reply_to_username)}</div>
+         <div class="reply-quote-text">${escapeHTML((msg.reply_to_text || '').slice(0, 80))}</div>
+       </div>`
+    : '';
+
+  const deleteBtn = (isMine || isAdmin) ? `
     <button class="msg-action-btn danger" title="Delete" data-action="delete">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
     </button>` : '';
 
+  const pinBtn = isAdmin ? `
+    <button class="msg-action-btn pin" title="Pin message" data-action="pin">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+    </button>` : '';
 
   wrapper.innerHTML =
     (isMine ? '<div class="msg-avatar-gap"></div>' : avatarHtml) +
@@ -256,9 +415,10 @@ function appendMessage(msg, animate = true) {
     '<button class="msg-action-btn" title="❤️" data-action="react" data-emoji="❤️">❤️</button>' +
     '<button class="msg-action-btn" title="🔥" data-action="react" data-emoji="🔥">🔥</button>' +
     '<button class="msg-action-btn" title="Reply" data-action="reply"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 17H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5"/><polyline points="9 11 12 14 22 9"/></svg></button>' +
-    mineActions +
+    pinBtn +
+    deleteBtn +
     '</div>' +
-    '<div class="msg-bubble"><div class="msg-text">' + escapeHTML(msg.text) + '</div><div class="msg-meta">' + time + '</div></div>' +
+    '<div class="msg-bubble">' + replyHtml + '<div class="msg-text">' + escapeHTML(msg.text) + '</div><div class="msg-meta">' + time + '</div></div>' +
     '</div>' +
     '<div class="msg-reactions" id="rxns-' + msgId + '"></div>' +
     '</div>' +
@@ -269,24 +429,76 @@ function appendMessage(msg, animate = true) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const action = btn.dataset.action;
-      if (action === 'react') addReaction(msgId, btn.dataset.emoji, wrapper);
-      if (action === 'reply') openReplyBar(msg.username, msg.text);
-      if (action === 'delete') deleteMessageLocal(wrapper);
+      if (action === 'react')   addReaction(msgId, btn.dataset.emoji);
+      if (action === 'reply')   openReplyBar(msg.username, msg.text, msg.id);
+      if (action === 'delete')  deleteMessage(msgId);
+      if (action === 'pin')     pinMessage(msgId);
     });
+  });
+
+  // Reply quote click → jump to original
+  wrapper.querySelectorAll('.msg-reply-quote').forEach(el => {
+    el.addEventListener('click', () => jumpToMsg(parseInt(el.dataset.jump)));
   });
 
   // Avatar / sender → profile
   wrapper.querySelectorAll('[data-user]').forEach(el => {
-    el.addEventListener('click', () => showProfile(msg.username, msg.avatar_color, msg.role, msg.bio));
+    el.addEventListener('click', () => showProfile(msg.username, msg.avatar_color, msg.role || msg.user_role, msg.bio));
   });
 
   msgsList.appendChild(wrapper);
+}
 
+function appendDeletedMessage(msg) {
+  const grouped = (lastMsgUser === msg.username);
+  lastMsgUser = msg.username;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg' + (currentUser && msg.username === currentUser.username ? ' mine' : '') + (grouped ? ' grouped' : '') + ' no-anim';
+  wrapper.dataset.msgId = msg.id;
+  const color = msg.avatar_color || '#4f59e8';
+  const avatarHtml = grouped
+    ? '<div class="msg-avatar-gap"></div>'
+    : `<div class="msg-avatar" style="background:${escapeHTML(color)}">${escapeHTML(msg.username[0].toUpperCase())}</div>`;
+  const isMine = currentUser && msg.username === currentUser.username;
+  wrapper.innerHTML =
+    (isMine ? '<div class="msg-avatar-gap"></div>' : avatarHtml) +
+    '<div class="msg-content"><div style="position:relative"><div class="msg-bubble" style="background:rgba(248,113,113,.04);border-color:rgba(248,113,113,.08)">' +
+    '<em class="msg-deleted">This message was deleted</em>' +
+    '<div class="msg-meta">' + formatTime(msg.created_at) + '</div></div></div></div>' +
+    (isMine ? avatarHtml : '');
+  msgsList.appendChild(wrapper);
+}
+
+function appendSystemMessage(text) {
+  const div = document.createElement('div');
+  div.className = 'system-msg';
+  div.innerHTML = `<div class="system-msg-line"></div><div class="system-msg-text">${escapeHTML(text)}</div><div class="system-msg-line"></div>`;
+  msgsList.appendChild(div);
+  if (isAtBottom) scrollToBottom();
+}
+
+// ─── Reaction Rendering ──────────────────────────────────────────────────────
+function renderReactions(wrapper, msgId, reactions) {
+  const container = wrapper.querySelector('.msg-reactions') || document.getElementById('rxns-' + msgId);
+  if (!container) return;
+  container.innerHTML = '';
+  if (!reactions || !reactions.length) return;
+  reactions.forEach(r => {
+    const users = (r.users || '').split(',').filter(Boolean);
+    const isMine = users.includes(currentUser?.username);
+    const chip = document.createElement('div');
+    chip.className = 'rxn-chip' + (isMine ? ' mine' : '');
+    chip.innerHTML = `<span>${r.emoji}</span><span class="rxn-count">${r.count}</span>`;
+    chip.title = users.join(', ');
+    chip.addEventListener('click', () => addReaction(msgId, r.emoji));
+    container.appendChild(chip);
+  });
 }
 
 // ─── Online Users ────────────────────────────────────────────────────────────
 function renderOnlineUsers() {
   const unique = dedupeByUserId(onlineUsers);
+  const isAdmin = currentUser?.role === 'admin';
   onlineCount.textContent = unique.length;
   onlineListEl.innerHTML  = '';
   unique.forEach(u => {
@@ -299,21 +511,47 @@ function renderOnlineUsers() {
     onlineListEl.appendChild(li);
   });
 
-  // Also populate members panel (right sidebar)
-  const membersList = document.getElementById('membersList');
-  const membersCount = document.getElementById('membersPanelCount');
+  // Members panel
+  const membersList  = $('membersList');
+  const membersCount = $('membersPanelCount');
   if (!membersList) return;
-  membersCount && (membersCount.textContent = unique.length);
+  if (membersCount) membersCount.textContent = unique.length;
   membersList.innerHTML = '<div class="members-section-label">Online — ' + unique.length + '</div>';
   unique.forEach(u => {
-    const item = document.createElement('div');
+    const isSelf = u.userId === currentUser?.id;
+    const item   = document.createElement('div');
     item.className = 'member-item';
+
+    let adminActions = '';
+    if (isAdmin && !isSelf) {
+      adminActions = `
+        <div class="member-admin-actions">
+          <button class="member-action-btn mute" data-uid="${u.userId}" data-uname="${escapeHTML(u.username)}" title="Mute user">🔇</button>
+          <button class="member-action-btn kick" data-uid="${u.userId}" data-uname="${escapeHTML(u.username)}" title="Kick user">Kick</button>
+        </div>`;
+    }
+
     item.innerHTML =
       '<div class="member-avatar" style="background:' + escapeHTML(u.avatar_color || '#4f59e8') + '">' +
       u.username[0].toUpperCase() +
       '<span class="member-status-dot"></span></div>' +
-      '<span class="member-name">' + escapeHTML(u.username) + '</span>';
-    item.addEventListener('click', () => showProfile(u.username, u.avatar_color, u.role, u.bio));
+      '<span class="member-name">' + escapeHTML(u.username) + '</span>' +
+      adminActions;
+
+    item.querySelector('.member-avatar, .member-name')?.addEventListener('click', () =>
+      showProfile(u.username, u.avatar_color, u.role, u.bio));
+
+    if (isAdmin && !isSelf) {
+      item.querySelector('.member-action-btn.kick')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        kickUser(parseInt(e.currentTarget.dataset.uid), e.currentTarget.dataset.uname);
+      });
+      item.querySelector('.member-action-btn.mute')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showMuteMenu(parseInt(e.currentTarget.dataset.uid), e.currentTarget.dataset.uname, e.currentTarget);
+      });
+    }
+
     membersList.appendChild(item);
   });
 }
@@ -333,13 +571,24 @@ function dedupeByUserId(arr) {
 function sendMessage() {
   const text = msgInput.value.trim();
   if (!text || !currentRoom) return;
-  socket.emit('chat_message', { roomId: currentRoom.id, text });
+  if (isMuted) { showToast('You are muted by an admin.', 'error'); return; }
+
+  // BUG FIX #3: Include reply context in emit
+  const payload = { roomId: currentRoom.id, text };
+  if (replyContext) {
+    payload.replyToId       = replyContext.id;
+    payload.replyToUsername = replyContext.username;
+    payload.replyToText     = replyContext.text;
+  }
+
+  socket.emit('chat_message', payload);
   msgInput.value = '';
   charCount.textContent = '';
-  charCount.className = 'char-count';
+  charCount.className   = 'char-count';
   if (isTyping) { isTyping = false; socket.emit('typing_stop', currentRoom.id); }
   clearTimeout(typingTimer);
   isAtBottom = true;
+  closeReplyBar();
   scrollToBottom();
 }
 
@@ -351,7 +600,6 @@ msgInput.addEventListener('keydown', (e) => {
 // ─── Typing Emit ─────────────────────────────────────────────────────────────
 msgInput.addEventListener('input', () => {
   if (!currentRoom) return;
-  // Character counter
   const len = msgInput.value.length;
   if (len > 1500) {
     charCount.textContent = `${len} / 2000`;
@@ -360,7 +608,6 @@ msgInput.addEventListener('input', () => {
     charCount.textContent = '';
     charCount.className   = 'char-count';
   }
-  // Typing indicator
   if (!isTyping) { isTyping = true; socket.emit('typing_start', currentRoom.id); }
   clearTimeout(typingTimer);
   typingTimer = setTimeout(() => { isTyping = false; socket.emit('typing_stop', currentRoom.id); }, 1500);
@@ -429,6 +676,9 @@ function initEmojiPicker() {
       msgInput.value = val.slice(0, pos) + emoji + val.slice(pos);
       msgInput.selectionStart = msgInput.selectionEnd = pos + emoji.length;
       msgInput.focus();
+      // Close picker after inserting emoji
+      picker.classList.remove('open');
+      $('emojiBtn').classList.remove('active');
     });
     grid.appendChild(btn);
   });
@@ -439,6 +689,7 @@ function initEmojiPicker() {
     $('emojiBtn').classList.toggle('active', picker.classList.contains('open'));
   });
 
+  // BUG FIX #7: Close emoji picker on outside click (without blocking reaction btn clicks)
   document.addEventListener('click', (e) => {
     if (!picker.contains(e.target) && e.target !== $('emojiBtn')) {
       picker.classList.remove('open');
@@ -448,9 +699,7 @@ function initEmojiPicker() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ⚠️  SEARCH — XSS VULNERABLE
-//     data.query is inserted via innerHTML without escaping
-//     Demo payload: <img src=x onerror=alert('ShieldWatch caught it!')>
+// ⚠️  SEARCH — XSS VULNERABLE (intentional for ShieldWatch demo)
 // ─────────────────────────────────────────────────────────────────────────────
 $('searchToggleBtn').addEventListener('click', () => {
   searchPanel.classList.toggle('open');
@@ -508,14 +757,13 @@ function jumpToMsg(id) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FILE BROWSER — redesigned modal
+// FILE BROWSER
 // ─────────────────────────────────────────────────────────────────────────────
 const FILE_ICONS = {
-  js:   '🟨', ts: '🟦', json: '📋', html: '🌐', css: '🎨',
-  md:   '📝', txt: '📄', sql:  '🗄️', env:  '🔐', py:  '🐍',
-  sh:   '⚙️', log: '📜', xml:  '📰', yml:  '⚙️', yaml:'⚙️',
+  js:'🟨', ts:'🟦', json:'📋', html:'🌐', css:'🎨',
+  md:'📝', txt:'📄', sql:'🗄️', env:'🔐', py:'🐍',
+  sh:'⚙️', log:'📜', xml:'📰', yml:'⚙️', yaml:'⚙️',
 };
-
 function getFileIcon(name) {
   const ext = (name.split('.').pop() || '').toLowerCase();
   return FILE_ICONS[ext] || '📄';
@@ -525,14 +773,8 @@ $('filesBtn').addEventListener('click', openFilesModal);
 $('filesClose').addEventListener('click', closeFilesModal);
 $('filesModal').addEventListener('click', (e) => { if (e.target === $('filesModal')) closeFilesModal(); });
 
-function openFilesModal() {
-  $('filesModal').classList.add('open');
-  loadFiles();
-}
-function closeFilesModal() {
-  $('filesModal').classList.remove('open');
-  $('viewerPane') && ($('viewerContent').textContent = 'Select a file from the list to preview its contents.');
-}
+function openFilesModal()  { $('filesModal').classList.add('open'); loadFiles(); }
+function closeFilesModal() { $('filesModal').classList.remove('open'); }
 
 async function loadFiles() {
   const fileList = $('fileList');
@@ -565,15 +807,12 @@ async function loadFiles() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ⚠️  FILE VIEWER — PATH TRAVERSAL entry point
-//     filename is sent to /api/file?path=<filename> — NOT sanitised server-side
-//     Demo: try ../private/db_config.txt
+// ⚠️  FILE VIEWER — PATH TRAVERSAL entry point (intentional for ShieldWatch demo)
 // ─────────────────────────────────────────────────────────────────────────────
 async function viewFile(filename) {
   $('viewerFileName').textContent = filename;
   $('viewerIcon').textContent     = getFileIcon(filename);
   $('viewerContent').textContent  = 'Loading…';
-
   try {
     const res  = await fetch(`/api/file?path=${encodeURIComponent(filename)}`);
     const data = await res.json();
@@ -585,12 +824,11 @@ async function viewFile(filename) {
 
 $('viewerClose').addEventListener('click', () => {
   document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
-  $('viewerContent').textContent = 'Select a file from the list to preview its contents.';
+  $('viewerContent').textContent  = 'Select a file from the list to preview its contents.';
   $('viewerFileName').textContent = 'No file selected';
-  $('viewerIcon').textContent = '📄';
+  $('viewerIcon').textContent     = '📄';
 });
 
-// Custom path input (path traversal demo)
 $('customPathBtn').addEventListener('click', () => {
   const p = $('customPath').value.trim();
   if (p) viewFile(p);
@@ -604,7 +842,7 @@ $('profileClose').addEventListener('click',  () => $('profileModal').classList.r
 $('profileModal').addEventListener('click', (e) => { if (e.target === $('profileModal')) $('profileModal').classList.remove('open'); });
 
 function showProfile(username, avatarColor, role, bio) {
-  const body = $('profileBody');
+  const body    = $('profileBody');
   const isAdmin = role === 'admin';
   body.innerHTML = `
     <div class="profile-card">
@@ -618,14 +856,12 @@ function showProfile(username, avatarColor, role, bio) {
 }
 
 // ─── Keyboard Shortcuts ───────────────────────────────────────────────────────
-// ─── Reply Bar Close ─────────────────────────────────────────────────────────
-const replyBarCloseBtn = $('replyBarClose');
-if (replyBarCloseBtn) replyBarCloseBtn.addEventListener('click', closeReplyBar);
-
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     $('filesModal').classList.remove('open');
     $('profileModal').classList.remove('open');
+    $('broadcastModal').classList.remove('open');
+    $('slowModeModal').classList.remove('open');
     searchPanel.classList.remove('open');
     $('emojiPicker').classList.remove('open');
     $('emojiBtn').classList.remove('active');
@@ -638,9 +874,255 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Reply Bar ───────────────────────────────────────────────────────────────
+function openReplyBar(username, text, id) {
+  replyContext = { username, text, id };
+  const bar = $('replyBar');
+  if (!bar) return;
+  $('replyBarWho').textContent    = username;
+  $('replyBarPreview').textContent = ' · ' + text.slice(0, 60);
+  bar.classList.add('visible');
+  msgInput.focus();
+}
 
-// escapeHTML — safe in all message rendering (search intentionally bypasses this)
+function closeReplyBar() {
+  replyContext = null;
+  const bar = $('replyBar');
+  if (bar) bar.classList.remove('visible');
+}
+
+const replyBarCloseBtn = $('replyBarClose');
+if (replyBarCloseBtn) replyBarCloseBtn.addEventListener('click', closeReplyBar);
+
+// ─── Bug Fix #1: Delete broadcasts to all users ───────────────────────────────
+function deleteMessage(msgId) {
+  if (!currentRoom) return;
+  socket.emit('delete_message', { msgId, roomId: currentRoom.id });
+}
+
+// ─── Bug Fix #2: Reactions broadcast to all users ────────────────────────────
+function addReaction(msgId, emoji) {
+  if (!currentRoom || !msgId) return;
+  socket.emit('add_reaction', { msgId, roomId: currentRoom.id, emoji });
+}
+
+// ─── Pinned Message Bar ───────────────────────────────────────────────────────
+function showPinnedBar({ msgId, text, username, pinnedBy }) {
+  $('pinnedBarUser').textContent = username;
+  $('pinnedBarText').textContent = text.slice(0, 80);
+  $('pinnedBar').style.display = 'flex';
+
+  $('pinnedBarJump').onclick = () => jumpToMsg(msgId);
+
+  const unpinBtn = $('pinnedBarUnpin');
+  if (unpinBtn && currentUser?.role === 'admin') {
+    unpinBtn.style.display = 'flex';
+    unpinBtn.onclick = () => {
+      socket.emit('unpin_message', { roomId: currentRoom.id });
+    };
+  }
+}
+
+function hidePinnedBar() {
+  $('pinnedBar').style.display = 'none';
+}
+
+// ─── Slow Mode UI ─────────────────────────────────────────────────────────────
+function updateSlowModeUI() {
+  const bar = $('slowModeBar');
+  if (!bar) return;
+  if (slowModeActive > 0) {
+    $('slowModeText').textContent = `Slow mode — 1 message every ${slowModeActive}s`;
+    bar.style.display = 'flex';
+  } else {
+    bar.style.display = 'none';
+    $('slowCountdown').textContent = '';
+    if (slowCdTimer) clearInterval(slowCdTimer);
+  }
+}
+
+function startSlowCountdown(seconds) {
+  let remaining = Math.ceil(seconds);
+  $('slowCountdown').textContent = `${remaining}s`;
+  msgInput.disabled = true;
+  if (slowCdTimer) clearInterval(slowCdTimer);
+  slowCdTimer = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(slowCdTimer);
+      $('slowCountdown').textContent = '';
+      if (!isMuted) msgInput.disabled = false;
+    } else {
+      $('slowCountdown').textContent = `${remaining}s`;
+    }
+  }, 1000);
+}
+
+// ─── Announcement Banner ──────────────────────────────────────────────────────
+function showAnnouncementBanner(text, by) {
+  const banner = $('announceBanner');
+  $('announceBy').textContent   = `📢 ${by}:`;
+  $('announceText').textContent = text;
+  banner.style.display = 'block';
+  // Auto-dismiss after 12s
+  setTimeout(() => { if (banner.style.display !== 'none') hideBanner(); }, 12000);
+}
+
+function hideBanner() {
+  const b = $('announceBanner');
+  b.style.opacity = '0';
+  b.style.transition = 'opacity .3s';
+  setTimeout(() => { b.style.display = 'none'; b.style.opacity = ''; }, 300);
+}
+
+$('announceDismiss').addEventListener('click', hideBanner);
+
+// ─── Toast Notifications ──────────────────────────────────────────────────────
+function showToast(message, type = 'info', duration = 4000) {
+  const container = $('toastContainer');
+  const toast     = document.createElement('div');
+  const icons     = { success: '✓', error: '✕', info: 'ℹ' };
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${escapeHTML(message)}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 250);
+  }, duration);
+}
+
+// ─── Admin Actions ────────────────────────────────────────────────────────────
+function kickUser(targetUserId, targetUsername) {
+  if (!confirm(`Remove ${targetUsername} from the chat?`)) return;
+  socket.emit('kick_user', {
+    targetUserId, targetUsername, roomId: currentRoom?.id,
+  });
+}
+
+function showMuteMenu(targetUserId, targetUsername, anchorEl) {
+  // Remove any existing mute menu
+  document.querySelectorAll('.mute-menu').forEach(m => m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'mute-menu';
+  menu.style.cssText = `
+    position:fixed;z-index:300;background:var(--s3);border:1px solid var(--b1);
+    border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);
+    display:flex;flex-direction:column;gap:2px;min-width:160px;
+  `;
+
+  const options = [
+    { label: '🔇 Mute 5 min',    ms: 5  * 60 * 1000 },
+    { label: '🔇 Mute 30 min',   ms: 30 * 60 * 1000 },
+    { label: '🔇 Mute 1 hour',   ms: 60 * 60 * 1000 },
+    { label: '🔇 Permanent',     ms: -1 },
+    { label: '🔊 Unmute',        ms: 0  },
+  ];
+
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.textContent = opt.label;
+    btn.style.cssText = `
+      background:none;border:none;color:var(--t2);text-align:left;
+      padding:7px 12px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;
+      transition:background .1s,color .1s;
+    `;
+    btn.addEventListener('mouseover', () => { btn.style.background='rgba(255,255,255,.05)'; btn.style.color='var(--t1)'; });
+    btn.addEventListener('mouseout',  () => { btn.style.background='none'; btn.style.color='var(--t2)'; });
+    btn.addEventListener('click', () => {
+      if (opt.ms === 0) {
+        socket.emit('unmute_user', { targetUserId, targetUsername });
+      } else {
+        socket.emit('mute_user', { targetUserId, targetUsername, durationMs: opt.ms });
+      }
+      menu.remove();
+    });
+    menu.appendChild(btn);
+  });
+
+  const rect = anchorEl.getBoundingClientRect();
+  menu.style.top  = `${rect.bottom + 4}px`;
+  menu.style.left = `${rect.left}px`;
+  document.body.appendChild(menu);
+
+  const closeMenu = (e) => {
+    if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', closeMenu); }
+  };
+  setTimeout(() => document.addEventListener('click', closeMenu), 0);
+}
+
+function pinMessage(msgId) {
+  if (!currentRoom) return;
+  socket.emit('pin_message', { msgId, roomId: currentRoom.id });
+  showToast('Message pinned.', 'success');
+}
+
+// ─── Admin UI Init ────────────────────────────────────────────────────────────
+function initAdminUI() {
+  if (currentUser?.role !== 'admin') return;
+
+  // Broadcast modal
+  $('broadcastBtn').addEventListener('click', () => {
+    $('broadcastModal').classList.add('open');
+    $('broadcastText').focus();
+  });
+  $('broadcastClose').addEventListener('click', () => $('broadcastModal').classList.remove('open'));
+  $('broadcastModal').addEventListener('click', (e) => {
+    if (e.target === $('broadcastModal')) $('broadcastModal').classList.remove('open');
+  });
+  $('broadcastSend').addEventListener('click', () => {
+    const text = $('broadcastText').value.trim();
+    if (!text) return;
+    socket.emit('broadcast_announcement', { text });
+    $('broadcastText').value = '';
+    $('broadcastModal').classList.remove('open');
+    showToast('Announcement sent to all rooms.', 'success');
+  });
+  $('broadcastText').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      $('broadcastSend').click();
+    }
+  });
+
+  // Slow mode modal
+  $('slowModeBtn').addEventListener('click', () => {
+    $('slowModeModal').classList.add('open');
+    updateSlowModePresetBtns();
+  });
+  $('slowModeClose').addEventListener('click', () => $('slowModeModal').classList.remove('open'));
+  $('slowModeModal').addEventListener('click', (e) => {
+    if (e.target === $('slowModeModal')) $('slowModeModal').classList.remove('open');
+  });
+
+  document.querySelectorAll('.slow-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sec = parseInt(btn.dataset.sec, 10);
+      applySlowMode(sec);
+    });
+  });
+
+  $('slowModeCustomApply').addEventListener('click', () => {
+    const val = parseInt($('slowModeCustom').value, 10);
+    if (!isNaN(val) && val > 0) applySlowMode(val);
+  });
+}
+
+function applySlowMode(seconds) {
+  if (!currentRoom) return;
+  socket.emit('set_slow_mode', { roomId: currentRoom.id, seconds });
+  $('slowModeModal').classList.remove('open');
+  updateSlowModePresetBtns(seconds);
+}
+
+function updateSlowModePresetBtns(active) {
+  const current = active !== undefined ? active : slowModeActive;
+  document.querySelectorAll('.slow-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.sec, 10) === current);
+  });
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function escapeHTML(str) {
   if (str == null) return '';
   return String(str)
@@ -655,71 +1137,12 @@ function formatTime(isoString) {
 
 function formatDateLabel(isoString) {
   if (!isoString) return 'Today';
-  const d     = new Date(isoString);
-  const today = new Date();
+  const d         = new Date(isoString);
+  const today     = new Date();
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
   if (d.toDateString() === today.toDateString())     return 'Today';
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
-}
-
-
-// ─── Reply Bar ───────────────────────────────────────────────────────────────
-let replyContext = null;
-
-function openReplyBar(username, text) {
-  replyContext = { username, text };
-  const bar = document.getElementById('replyBar');
-  if (!bar) return;
-  document.getElementById('replyBarWho').textContent = username;
-  document.getElementById('replyBarPreview').textContent = ' · ' + text.slice(0, 60);
-  bar.classList.add('visible');
-  msgInput.focus();
-}
-
-function closeReplyBar() {
-  replyContext = null;
-  const bar = document.getElementById('replyBar');
-  if (bar) bar.classList.remove('visible');
-}
-
-// ─── Delete Message (local UI only) ─────────────────────────────────────────
-function deleteMessageLocal(wrapper) {
-  const bubble = wrapper.querySelector('.msg-bubble');
-  if (!bubble) return;
-  bubble.innerHTML = '<em class="msg-deleted">This message was deleted</em>';
-  bubble.style.cssText += ';background:rgba(248,113,113,.04);border-color:rgba(248,113,113,.08);';
-  const actions = wrapper.querySelector('.msg-actions');
-  if (actions) actions.innerHTML = '';
-  const rxns = wrapper.querySelector('.msg-reactions');
-  if (rxns) rxns.innerHTML = '';
-}
-
-// ─── Reactions (local UI only) ───────────────────────────────────────────────
-function addReaction(msgId, emoji, wrapper) {
-  const container = wrapper.querySelector('.msg-reactions');
-  if (!container) return;
-  const existing = [...container.querySelectorAll('.rxn-chip')].find(c =>
-    c.querySelector('span:first-child') && c.querySelector('span:first-child').textContent === emoji
-  );
-  if (existing) {
-    const cnt = existing.querySelector('.rxn-count');
-    const n = parseInt(cnt.textContent) || 1;
-    if (existing.classList.contains('mine')) {
-      if (n <= 1) { existing.remove(); return; }
-      cnt.textContent = n - 1;
-      existing.classList.remove('mine');
-    } else {
-      cnt.textContent = n + 1;
-      existing.classList.add('mine');
-    }
-  } else {
-    const chip = document.createElement('div');
-    chip.className = 'rxn-chip mine';
-    chip.innerHTML = '<span>' + emoji + '</span><span class="rxn-count">1</span>';
-    chip.addEventListener('click', () => addReaction(msgId, emoji, wrapper));
-    container.appendChild(chip);
-  }
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────

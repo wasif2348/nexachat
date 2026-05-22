@@ -111,15 +111,50 @@ async function initDB() {
 
   db.run(`
     CREATE TABLE IF NOT EXISTS messages (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      room_id      INTEGER NOT NULL,
-      user_id      INTEGER NOT NULL,
-      username     TEXT    NOT NULL,
-      avatar_color TEXT    DEFAULT '#3b82f6',
-      text         TEXT    NOT NULL,
-      created_at   TEXT    DEFAULT (datetime('now'))
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id         INTEGER NOT NULL,
+      user_id         INTEGER NOT NULL,
+      username        TEXT    NOT NULL,
+      avatar_color    TEXT    DEFAULT '#3b82f6',
+      text            TEXT    NOT NULL,
+      deleted         INTEGER DEFAULT 0,
+      reply_to_id     INTEGER DEFAULT NULL,
+      reply_to_username TEXT  DEFAULT NULL,
+      reply_to_text   TEXT    DEFAULT NULL,
+      created_at      TEXT    DEFAULT (datetime('now'))
     )
   `);
+
+  // Reactions table (one row per user per emoji per message)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS reactions (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL,
+      user_id    INTEGER NOT NULL,
+      username   TEXT    NOT NULL,
+      emoji      TEXT    NOT NULL,
+      UNIQUE(message_id, user_id, emoji)
+    )
+  `);
+
+  // Pinned messages (one pin per room)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS pinned_messages (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id          INTEGER NOT NULL UNIQUE,
+      message_id       INTEGER NOT NULL,
+      message_text     TEXT    NOT NULL,
+      message_username TEXT    NOT NULL,
+      pinned_by        TEXT    NOT NULL,
+      pinned_at        TEXT    DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Live migrations for databases created before this version
+  try { db.run('ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0'); }         catch(e) {}
+  try { db.run('ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL'); }   catch(e) {}
+  try { db.run('ALTER TABLE messages ADD COLUMN reply_to_username TEXT DEFAULT NULL'); } catch(e) {}
+  try { db.run('ALTER TABLE messages ADD COLUMN reply_to_text TEXT DEFAULT NULL'); }    catch(e) {}
 
   // ─── Seed Users (INSERT OR IGNORE — safe to run every boot) ──────────────────
   const demoUsers = [

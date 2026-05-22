@@ -255,9 +255,16 @@ app.get('/api/messages/:roomId', requireAuth, (req, res) => {
   }
 
   const prepare = getPrepare();
-  const msgs    = prepare(
-    'SELECT * FROM messages WHERE room_id = ? ORDER BY created_at ASC LIMIT 100'
-  ).all(rid);
+  // Join with users to get role; include deleted flag so client can render tombstone
+  const msgs = prepare(`
+    SELECT m.id, m.room_id, m.user_id, m.username, m.avatar_color, m.text,
+           m.deleted, m.reply_to_id, m.reply_to_username, m.reply_to_text,
+           m.created_at, u.role as role
+    FROM messages m
+    LEFT JOIN users u ON u.id = m.user_id
+    WHERE m.room_id = ?
+    ORDER BY m.created_at ASC LIMIT 100
+  `).all(rid);
   res.json(msgs);
 });
 
@@ -278,6 +285,22 @@ app.get('/api/search', requireAuth, (req, res) => {
 
   // !! INTENTIONALLY returns raw `q` — client will innerHTML it !!
   res.json({ ok: true, results, query: q });
+});
+
+// ─── Pinned Message ───────────────────────────────────────────────────────────
+app.get('/api/pinned/:roomId', requireAuth, (req, res) => {
+  const prepare = getPrepare();
+  const pin = prepare('SELECT * FROM pinned_messages WHERE room_id = ?').get(req.params.roomId);
+  res.json({ ok: true, pin: pin || null });
+});
+
+// ─── Reactions for a message ──────────────────────────────────────────────────
+app.get('/api/reactions/:msgId', requireAuth, (req, res) => {
+  const prepare = getPrepare();
+  const rows = prepare(
+    'SELECT emoji, COUNT(*) as count, GROUP_CONCAT(username) as users FROM reactions WHERE message_id = ? GROUP BY emoji'
+  ).all(req.params.msgId);
+  res.json({ ok: true, reactions: rows });
 });
 
 // ─── Files List ───────────────────────────────────────────────────────────────
@@ -509,6 +532,11 @@ app.post('/api/tools/ping', requireAuth, (req, res) => {
   });
 });
 
+// ─── Admin Feature State ──────────────────────────────────────────────────────
+const mutedUsers    = new Map(); // userId → { until: timestamp|Infinity, by: username }
+const slowModeRooms = new Map(); // roomId → seconds
+const lastMsgTime   = new Map(); // `${userId}:${roomId}` → ms timestamp
+
 // ─── Online Users (REST fallback) ─────────────────────────────────────────────
 const onlineUsers = new Map(); // socketId → userObj
 
@@ -575,7 +603,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Chat Message ─────────────────────────────────────────────────────────────
-  socket.on('chat_message', ({ roomId, text }) => {
+  socket.on('chat_message', ({ roomId, text, replyToId, replyToUsername, replyToText }) => {
     if (!text || typeof text !== 'string') return;
     const clean = text.trim().slice(0, 2000);
     if (!clean) return;
@@ -584,19 +612,55 @@ io.on('connection', (socket) => {
     const u    = onlineUsers.get(socket.id);
     if (!u) return;
 
+    // ── Mute check ────────────────────────────────────────────────────────────
+    const muteInfo = mutedUsers.get(u.userId);
+    if (muteInfo) {
+      const stillMuted = muteInfo.until === Infinity || Date.now() < muteInfo.until;
+      if (stillMuted) {
+        socket.emit('message_blocked', { error: 'You have been muted by an admin.', threat: 'muted' });
+        return;
+      } else {
+        mutedUsers.delete(u.userId); // expired
+      }
+    }
+
+    // ── Slow mode check ───────────────────────────────────────────────────────
+    const slowSec = slowModeRooms.get(rid);
+    if (slowSec && u.role !== 'admin') {
+      const key     = `${u.userId}:${rid}`;
+      const lastAt  = lastMsgTime.get(key) || 0;
+      const elapsed = (Date.now() - lastAt) / 1000;
+      if (elapsed < slowSec) {
+        const remainingMs = Math.ceil((slowSec - elapsed) * 1000);
+        socket.emit('message_blocked', {
+          error: `Slow mode active — wait ${Math.ceil(slowSec - elapsed)}s before sending.`,
+          threat: 'slowmode',
+          remainingMs,
+        });
+        return;
+      }
+      lastMsgTime.set(key, Date.now());
+    }
+
     const prepare2 = getPrepare();
     const result   = prepare2(
-      'INSERT INTO messages (room_id, user_id, username, avatar_color, text) VALUES (?, ?, ?, ?, ?)'
-    ).run(rid, u.userId, u.username, u.avatar_color, clean);
+      'INSERT INTO messages (room_id, user_id, username, avatar_color, text, reply_to_id, reply_to_username, reply_to_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(rid, u.userId, u.username, u.avatar_color, clean,
+          replyToId || null, replyToUsername || null, replyToText ? replyToText.slice(0, 120) : null);
 
     const msg = {
-      id:           result.lastInsertRowid,
-      room_id:      rid,
-      user_id:      u.userId,
-      username:     u.username,
-      avatar_color: u.avatar_color,
-      text:         clean,
-      created_at:   new Date().toISOString()
+      id:               result.lastInsertRowid,
+      room_id:          rid,
+      user_id:          u.userId,
+      username:         u.username,
+      role:             u.role,
+      avatar_color:     u.avatar_color,
+      text:             clean,
+      deleted:          0,
+      reply_to_id:      replyToId      || null,
+      reply_to_username: replyToUsername || null,
+      reply_to_text:    replyToText    || null,
+      created_at:       new Date().toISOString()
     };
 
     // ShieldWatch Socket.io hook — runs BEFORE broadcast so it can block
@@ -614,6 +678,130 @@ io.on('connection', (socket) => {
     }
 
     io.to(`room:${rid}`).emit('chat_message', msg);
+  });
+
+  // ── Delete Message ───────────────────────────────────────────────────────────
+  socket.on('delete_message', ({ msgId, roomId }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u) return;
+    const prepare2 = getPrepare();
+    const msg = prepare2('SELECT * FROM messages WHERE id = ?').get(msgId);
+    if (!msg) return;
+    // Only message owner OR admin can delete
+    if (msg.user_id !== u.userId && u.role !== 'admin') return;
+    prepare2('UPDATE messages SET deleted = 1 WHERE id = ?').run(msgId);
+    io.to(`room:${roomId}`).emit('message_deleted', { msgId });
+  });
+
+  // ── Add / Toggle Reaction ────────────────────────────────────────────────────
+  socket.on('add_reaction', ({ msgId, roomId, emoji }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u) return;
+    const prepare2 = getPrepare();
+    const existing = prepare2('SELECT id FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').get(msgId, u.userId, emoji);
+    if (existing) {
+      prepare2('DELETE FROM reactions WHERE id = ?').run(existing.id);
+    } else {
+      prepare2('INSERT INTO reactions (message_id, user_id, username, emoji) VALUES (?, ?, ?, ?)').run(msgId, u.userId, u.username, emoji);
+    }
+    const reactions = prepare2(
+      'SELECT emoji, COUNT(*) as count, GROUP_CONCAT(username) as users FROM reactions WHERE message_id = ? GROUP BY emoji'
+    ).all(msgId);
+    io.to(`room:${roomId}`).emit('reaction_update', { msgId, reactions });
+  });
+
+  // ── Kick User (admin only) ───────────────────────────────────────────────────
+  socket.on('kick_user', ({ targetUserId, targetUsername, roomId }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u || u.role !== 'admin') return;
+    // Disconnect all sockets belonging to target
+    for (const [sid, usr] of onlineUsers) {
+      if (usr.userId === targetUserId) {
+        const tSocket = io.sockets.sockets.get(sid);
+        if (tSocket) {
+          tSocket.emit('kicked', { by: u.username });
+          setTimeout(() => tSocket.disconnect(true), 600);
+        }
+      }
+    }
+    io.to(`room:${roomId}`).emit('system_message', {
+      text: `${targetUsername} was removed from the chat by an admin.`,
+      created_at: new Date().toISOString(),
+    });
+  });
+
+  // ── Mute User (admin only) ───────────────────────────────────────────────────
+  socket.on('mute_user', ({ targetUserId, targetUsername, durationMs }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u || u.role !== 'admin') return;
+    const until = durationMs === -1 ? Infinity : Date.now() + durationMs;
+    mutedUsers.set(targetUserId, { until, by: u.username });
+    for (const [sid, usr] of onlineUsers) {
+      if (usr.userId === targetUserId) {
+        const tSocket = io.sockets.sockets.get(sid);
+        if (tSocket) tSocket.emit('you_are_muted', { until, by: u.username });
+      }
+    }
+    socket.emit('admin_toast', { msg: `${targetUsername} has been muted.`, type: 'success' });
+  });
+
+  socket.on('unmute_user', ({ targetUserId, targetUsername }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u || u.role !== 'admin') return;
+    mutedUsers.delete(targetUserId);
+    for (const [sid, usr] of onlineUsers) {
+      if (usr.userId === targetUserId) {
+        const tSocket = io.sockets.sockets.get(sid);
+        if (tSocket) tSocket.emit('you_are_unmuted');
+      }
+    }
+    socket.emit('admin_toast', { msg: `${targetUsername} has been unmuted.`, type: 'success' });
+  });
+
+  // ── Pin Message (admin only) ─────────────────────────────────────────────────
+  socket.on('pin_message', ({ msgId, roomId }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u || u.role !== 'admin') return;
+    const prepare2 = getPrepare();
+    const msg = prepare2('SELECT * FROM messages WHERE id = ?').get(msgId);
+    if (!msg || msg.deleted) return;
+    prepare2(
+      'INSERT OR REPLACE INTO pinned_messages (room_id, message_id, message_text, message_username, pinned_by) VALUES (?, ?, ?, ?, ?)'
+    ).run(roomId, msgId, msg.text, msg.username, u.username);
+    io.to(`room:${roomId}`).emit('message_pinned', {
+      msgId, text: msg.text, username: msg.username, pinnedBy: u.username,
+    });
+  });
+
+  socket.on('unpin_message', ({ roomId }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u || u.role !== 'admin') return;
+    const prepare2 = getPrepare();
+    prepare2('DELETE FROM pinned_messages WHERE room_id = ?').run(roomId);
+    io.to(`room:${roomId}`).emit('message_unpinned', { roomId });
+  });
+
+  // ── Slow Mode (admin only) ───────────────────────────────────────────────────
+  socket.on('set_slow_mode', ({ roomId, seconds }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u || u.role !== 'admin') return;
+    const sec = Math.max(0, parseInt(seconds, 10) || 0);
+    if (sec > 0) slowModeRooms.set(roomId, sec);
+    else         slowModeRooms.delete(roomId);
+    io.to(`room:${roomId}`).emit('slow_mode_update', { roomId, seconds: sec });
+    socket.emit('admin_toast', {
+      msg: sec > 0 ? `Slow mode set to ${sec}s.` : 'Slow mode disabled.',
+      type: 'success',
+    });
+  });
+
+  // ── Global Broadcast (admin only) ────────────────────────────────────────────
+  socket.on('broadcast_announcement', ({ text }) => {
+    const u = onlineUsers.get(socket.id);
+    if (!u || u.role !== 'admin') return;
+    const clean = (text || '').trim().slice(0, 500);
+    if (!clean) return;
+    io.emit('global_announcement', { text: clean, by: u.username, at: new Date().toISOString() });
   });
 
   // ── Typing Indicators ────────────────────────────────────────────────────────
